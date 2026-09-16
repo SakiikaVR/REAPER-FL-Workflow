@@ -1,0 +1,9 @@
+dist/
+*.zip
+*.log
+.test-resource/
+*.obj
+*.lib
+*.exp
+*.exe
+source/LINEFont/reaper_plugin.h

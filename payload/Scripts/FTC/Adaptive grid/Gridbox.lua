@@ -1,0 +1,3278 @@
+--[[
+  @author Ilias-Timon Poulakis (FeedTheCat)
+  @license MIT
+  @version 2.8.3
+  @about Adds a little box to transport that displays project grid information
+  @changelog
+    - Support advanced UI scaling (via preferences) on MacOS
+]]
+
+local box_name = 'GridBox'
+local extname = 'FTC.' .. box_name
+
+local box_w
+local box_h
+local box_x
+local box_y
+
+local prev_box_w
+local prev_box_h
+local prev_box_x
+local prev_box_y
+
+local attach_mode
+local attach_x
+local attach_center_mode
+local attach_center_x
+local prev_is_centered
+
+local user_bg_color
+local user_border_color
+local user_text_color
+local user_swing_color
+local user_corner_radius
+local user_adaptive_color
+local user_font_height
+local user_font_family
+local user_font_weight
+local user_font_yoffs
+
+local user_snap_size
+local user_snap_on_color
+local user_snap_off_color
+local user_snap_sep_color
+
+local window_hwnd
+local prev_window_hwnd
+local window_w
+local window_h
+
+local prev_time
+local prev_window_w
+local prev_window_h
+local prev_color_theme
+local prev_main_mult
+local prev_swing_amt
+local prev_grid_div
+local prev_top_window_hash
+local prev_attach_hwnd
+local main_hwnd = reaper.GetMainHwnd()
+
+local prev_hzoom_lvl
+local prev_vis_grid_div
+
+local grid_text
+local is_adaptive
+
+local drag_x
+local drag_y
+local swing_drag_x
+local is_swing_drag
+
+local is_left_click = false
+local is_right_click = false
+
+local snap_w = 0
+local prev_is_snap
+local prev_is_rel_snap
+local prev_is_snap_hovered
+
+local menu_time
+local menu_env
+
+local bitmap
+local lice_font
+local font_size
+
+local snap_bitmap
+local bg_bitmap
+
+local prev_bg_color
+local prev_bg_corner_r
+local prev_snap_color
+
+local is_redraw = false
+local is_resize = false
+local resize_flags = 0
+local resize_cursor
+
+local prev_hover_m_x, prev_hover_m_y
+local mouse_x, mouse_y
+local hover_cnt = 0
+
+local GetSetGrid = reaper.GetSetProjectGrid
+
+local has_reapack = reaper.ReaPack_BrowsePackages ~= nil
+local missing_dependencies = {}
+
+function print(...)
+    local values = {...}
+    for i = 1, #values do values[i] = tostring(values[i]) end
+    if #values == 0 then values[1] = 'nil' end
+    reaper.ShowConsoleMsg(table.concat(values, ' ') .. '\n')
+end
+
+-- Check if js_ReaScriptAPI extension is installed
+if not reaper.JS_Composite_Delay then
+    if has_reapack then
+        table.insert(missing_dependencies, 'js_ReaScriptAPI')
+    else
+        reaper.MB('Please install js_ReaScriptAPI extension', box_name, 0)
+        return
+    end
+end
+
+-- Load scripts from Adaptive Grid
+local _, script_path, sec, cmd = reaper.get_action_context()
+local script_dir = script_path:match('^(.+)[\\/]')
+
+function ConcatPath(...) return table.concat({...}, package.config:sub(1, 1)) end
+
+local menu_script = ConcatPath(script_dir, 'Adaptive grid menu.lua')
+
+if not reaper.file_exists(menu_script) then
+    if has_reapack then
+        table.insert(missing_dependencies, 'Adaptive Grid')
+    else
+        reaper.MB('Please install Adaptive Grid', box_name, 0)
+        return
+    end
+end
+
+if #missing_dependencies > 0 then
+    local msg = ('Missing dependencies:\n\n'):format(#missing_dependencies)
+    for _, dependency in ipairs(missing_dependencies) do
+        msg = msg .. ' • ' .. dependency .. '\n'
+    end
+    reaper.MB(msg, box_name, 0)
+
+    for i = 1, #missing_dependencies do
+        if missing_dependencies[i]:match(' ') then
+            missing_dependencies[i] = '"' .. missing_dependencies[i] .. '"'
+        end
+    end
+    reaper.ReaPack_BrowsePackages(table.concat(missing_dependencies, ' OR '))
+    return
+end
+
+-- Check REAPER version
+local version = tonumber(reaper.GetAppVersion():match('[%d.]+'))
+if version >= 7.03 then reaper.set_action_options(1) end
+
+-- Detect operating system
+local os = reaper.GetOS()
+local is_windows = os:match('Win')
+local is_macos = os:match('OS')
+local is_linux = os:match('Other')
+
+local scroll_dir = is_macos and -1 or 1
+scroll_dir = tonumber(reaper.GetExtState(extname, 'scroll_dir')) or scroll_dir
+
+local use_vis_grid = reaper.GetExtState(extname, 'use_vis_grid') == '1'
+local hide_snap = reaper.GetExtState(extname, 'hide_snap') == '1'
+
+local comp_fps = reaper.GetExtState(extname, 'comp_fps')
+comp_fps = tonumber(comp_fps) or 30
+local comp_delay = comp_fps == 0 and 0 or 1 / comp_fps
+
+local attach_window_title = reaper.GetExtState(extname, 'attach_title')
+if attach_window_title == '' then attach_window_title = nil end
+
+local attach_window_wait = reaper.GetExtState(extname, 'attach_wait')
+if attach_window_wait == '' then attach_window_wait = nil end
+
+local attach_window_child_id = reaper.GetExtState(extname, 'attach_child_id')
+attach_window_child_id = tonumber(attach_window_child_id)
+
+local transport_title = reaper.JS_Localize('Transport', 'common')
+local menu_cmd = reaper.AddRemoveReaScript(true, 0, menu_script, true)
+
+function GetTransportScale()
+    local _, new_dpi = reaper.ThemeLayout_GetLayout('trans', -3)
+    local ret, layout = reaper.ThemeLayout_GetLayout('trans', -1)
+    local pixel_scale = tonumber(new_dpi) / 256
+    local ini_scale = 1
+    if is_macos then
+        local _, ui_scale = reaper.get_config_var_string('ui_scale')
+        ini_scale = tonumber(ui_scale) or 1
+        pixel_scale = pixel_scale / ini_scale
+    end
+    pixel_scale = (pixel_scale * 100 + 0.5) / 100
+    local point_scale = pixel_scale
+
+    if ret and not attach_window_title then
+        local layout_scale = tonumber(layout:match('^(%d+)%%'))
+        if layout_scale then
+            if pixel_scale > 1.74 then
+                if layout_scale == 50 then point_scale = 1 end
+                if layout_scale == 75 then point_scale = 1.5 end
+            elseif pixel_scale > 1.34 then
+                if layout_scale == 50 then point_scale = 1 end
+                if layout_scale == 75 then point_scale = 1 end
+                if layout_scale == 150 then point_scale = 2 end
+                if layout_scale == 200 then point_scale = 2 end
+            else
+                if layout_scale == 150 then point_scale = 1.5 end
+                if layout_scale == 200 then point_scale = 2 end
+            end
+        end
+    end
+    if is_macos then
+        return point_scale / pixel_scale * ini_scale, point_scale * ini_scale
+    end
+    return point_scale, point_scale
+end
+
+function Scale(value, scale)
+    if not tonumber(value) then return value end
+    return math.floor(value * scale + 0.5)
+end
+
+local measure_scale, draw_scale = GetTransportScale()
+-- Smallest size the box is allowed to have (width and height in pixels)
+local min_box_size = Scale(12, measure_scale)
+
+-------------------------------- FUNCTIONS -----------------------------------
+
+reaper.gmem_attach('mouse_pos')
+local mouse_pos_state = reaper.gmem_read(0)
+
+local function GetMousePosition()
+    local global_state = reaper.gmem_read(0)
+    if global_state > mouse_pos_state then
+        mouse_pos_state = global_state
+        return reaper.gmem_read(1), reaper.gmem_read(2)
+    else
+        mouse_pos_state = mouse_pos_state + 1
+        local x, y = reaper.GetMousePosition()
+        reaper.gmem_write(0, mouse_pos_state)
+        reaper.gmem_write(1, x)
+        reaper.gmem_write(2, y)
+        return x, y
+    end
+end
+
+function EscapeString(str)
+    local function EscapeChar(char)
+        if char == ',' then return '\\,' end
+        if char == ':' then return '\\:' end
+        if char == '{' then return '\\[' end
+        if char == '}' then return '\\]' end
+        if char == '\\' then return '\\&' end
+    end
+    return str:gsub('[,:{}\\]', EscapeChar)
+end
+
+function UnEscapeString(str)
+    local function UnEscapeChar(char)
+        if char == ',' then return ',' end
+        if char == ':' then return ':' end
+        if char == '[' then return '{' end
+        if char == ']' then return '}' end
+        if char == '&' then return '\\' end
+    end
+    return str:gsub('\\([,:%[%]&])', UnEscapeChar)
+end
+
+function Serialize(value, add_newlines)
+    local value_type = type(value)
+    if value_type == 'string' then return 's:' .. EscapeString(value) end
+    if value_type == 'number' then return 'n:' .. value end
+    if value_type == 'boolean' then return 'b:' .. (value and 1 or 0) end
+    if value_type == 'table' then
+        local value_str = 't:{'
+        local has_elems = false
+        for key, elem in pairs(value) do
+            if type(elem) ~= 'function' then
+                -- Avoid adding protected elements that start with underscore
+                local is_str_key = type(key) == 'string'
+                if not is_str_key or key:sub(1, 1) ~= '_' then
+                    if is_str_key then key = EscapeString(key) end
+                    if not has_elems and add_newlines then
+                        value_str = value_str .. '\n'
+                    end
+                    local entry = Serialize(elem, add_newlines)
+                    value_str = value_str .. key .. ':' .. entry .. ','
+                    if add_newlines then value_str = value_str .. '\n' end
+                    has_elems = true
+                end
+            end
+        end
+        if has_elems then
+            value_str = value_str:sub(1, -2)
+            if add_newlines then value_str = value_str .. '\n' end
+        end
+        return value_str .. '}'
+    end
+    return ''
+end
+
+function Deserialize(value_str)
+    local value_type, payload = value_str:sub(1, 1), value_str:sub(3)
+    if value_type == 's' then return UnEscapeString(payload) end
+    if value_type == 'n' then return tonumber(payload) end
+    if value_type == 'b' then return payload == '1' end
+    if value_type == 't' then
+        local matches = {}
+        local m = 0
+
+        local function AddMatch(table_str)
+            m = m + 1
+            local match = {}
+            local i = 1
+            for value in (table_str .. ','):gmatch('(.-[^\\]),\r?\n?') do
+                match[i] = value
+                i = i + 1
+            end
+            matches[m] = match
+            return m
+        end
+
+        local _, bracket_cnt = payload:gsub('{', '')
+        for _ = 1, bracket_cnt do
+            payload = payload:gsub('{\r?\n?([^{}]*)\r?\n?}', AddMatch, 1)
+        end
+
+        local function AssembleTable(match)
+            local ret = {}
+            for _, elem in ipairs(match) do
+                local key, value = elem:match('^(.-[^\\]):(.-)$')
+                key = tonumber(key) or UnEscapeString(key)
+                if value:sub(1, 1) == 't' then
+                    local n = tonumber(value:match('^t:(.-)$'))
+                    ret[key] = AssembleTable(matches[n])
+                else
+                    ret[key] = Deserialize(value)
+                end
+            end
+            return ret
+        end
+        return AssembleTable(matches[m])
+    end
+end
+
+function ExtSave(key, value, is_temporary)
+    if value == nil then
+        reaper.DeleteExtState(extname, key, not is_temporary)
+        return
+    end
+    local value_str = Serialize(value)
+    if not value_str then return end
+    reaper.SetExtState(extname, key, value_str, not is_temporary)
+end
+
+function ExtLoad(key, default)
+    local value = default
+    local value_str = reaper.GetExtState(extname, key)
+    if value_str ~= '' then value = Deserialize(value_str) end
+    return value
+end
+
+function GetStartupHookCommandID()
+    -- Note: Startup hook commands have to be in the main section
+    local _, script_file, section, cmd_id = reaper.get_action_context()
+    if section == 0 then
+        -- Save command name when main section script is run first
+        local cmd_name = '_' .. reaper.ReverseNamedCommandLookup(cmd_id)
+        reaper.SetExtState(extname, 'hook_cmd_name', cmd_name, true)
+    else
+        -- Look for saved command name by main section script
+        local cmd_name = reaper.GetExtState(extname, 'hook_cmd_name')
+        cmd_id = reaper.NamedCommandLookup(cmd_name)
+        if cmd_id == 0 then
+            -- Add the script to main section (to get cmd id)
+            cmd_id = reaper.AddRemoveReaScript(true, 0, script_file, true)
+            if cmd_id ~= 0 then
+                -- Save command name to avoid adding script on next run
+                cmd_name = '_' .. reaper.ReverseNamedCommandLookup(cmd_id)
+                reaper.SetExtState(extname, 'hook_cmd_name', cmd_name, true)
+            end
+        end
+    end
+    return cmd_id
+end
+
+function IsStartupHookEnabled(opt_cmd_id)
+    local res_path = reaper.GetResourcePath()
+    local startup_path = ConcatPath(res_path, 'Scripts', '__startup.lua')
+    local cmd_id = opt_cmd_id or GetStartupHookCommandID()
+    local cmd_name = reaper.ReverseNamedCommandLookup(cmd_id)
+
+    if reaper.file_exists(startup_path) then
+        -- Read content of __startup.lua
+        local startup_file = io.open(startup_path, 'r')
+        if not startup_file then return false end
+        local content = startup_file:read('*a')
+        startup_file:close()
+
+        -- Find line that contains command id (also next line if available)
+        local pattern = '[^\n]+' .. cmd_name .. '\'?\n?[^\n]+'
+        local s, e = content:find(pattern)
+
+        -- Check if line exists and whether it is commented out
+        if s and e then
+            local hook = content:sub(s, e)
+            local comment = hook:match('[^\n]*%-%-[^\n]*reaper%.Main_OnCommand')
+            if not comment then return true end
+        end
+    end
+    return false
+end
+
+function SetStartupHookEnabled(is_enabled, comment, var_name)
+    local res_path = reaper.GetResourcePath()
+    local startup_path = ConcatPath(res_path, 'Scripts', '__startup.lua')
+    local cmd_id = GetStartupHookCommandID()
+    local cmd_name = reaper.ReverseNamedCommandLookup(cmd_id)
+
+    local content = ''
+    local hook_exists = false
+
+    -- Check startup script for existing hook
+    if reaper.file_exists(startup_path) then
+        local startup_file = io.open(startup_path, 'r')
+        if not startup_file then return end
+        content = startup_file:read('*a')
+        startup_file:close()
+
+        -- Find line that contains command id (also next line if available)
+        local pattern = '[^\n]+' .. cmd_name .. '\'?\n?[^\n]+'
+        local s, e = content:find(pattern)
+
+        if s and e then
+            -- Add/remove comment from existing startup hook
+            local hook = content:sub(s, e)
+            local repl = (is_enabled and '' or '-- ') .. 'reaper.Main_OnCommand'
+            hook = hook:gsub('[^\n]*reaper%.Main_OnCommand', repl, 1)
+            content = content:sub(1, s - 1) .. hook .. content:sub(e + 1)
+
+            -- Write changes to file
+            local new_startup_file = io.open(startup_path, 'w')
+            if not new_startup_file then return end
+            new_startup_file:write(content)
+            new_startup_file:close()
+
+            hook_exists = true
+        end
+    end
+
+    -- Create startup hook
+    if is_enabled and not hook_exists then
+        comment = comment and '-- ' .. comment .. '\n' or ''
+        var_name = var_name or 'cmd_name'
+        local hook = '%slocal %s = \'_%s\'\nreaper.\z
+            Main_OnCommand(reaper.NamedCommandLookup(%s), 0)\n\n'
+        hook = hook:format(comment, var_name, cmd_name, var_name)
+        local startup_file = io.open(startup_path, 'w')
+        if not startup_file then return end
+        startup_file:write(hook .. content)
+        startup_file:close()
+    end
+end
+
+function CreateMenuRecursive(menu)
+    local str = ''
+    if menu.title then str = str .. '>' .. menu.title .. '|' end
+
+    for _, entry in ipairs(menu) do
+        if entry then
+            local arg = entry.arg
+            if entry.IsGrayed and entry.IsGrayed(arg) or entry.is_grayed then
+                str = str .. '#'
+            end
+            if entry.IsChecked and entry.IsChecked(arg) or entry.is_checked then
+                str = str .. '!'
+            end
+            if #entry > 0 then
+                str = str .. CreateMenuRecursive(entry) .. '|'
+            else
+                if entry.title or entry.separator then
+                    str = str .. (entry.title or '') .. '|'
+                end
+            end
+        end
+    end
+    if menu.title then str = str .. '<' end
+    return str
+end
+
+function ReturnMenuRecursive(menu, idx, i)
+    i = i or 1
+    for _, entry in ipairs(menu) do
+        if entry then
+            if #entry > 0 then
+                i = ReturnMenuRecursive(entry, idx, i)
+                if i < 0 then return i end
+            elseif entry.title then
+                if i == math.floor(idx) then
+                    if entry.OnReturn then entry.OnReturn(entry.arg) end
+                    return -1
+                end
+                i = i + 1
+            end
+        end
+    end
+    return i
+end
+
+local function ParseIni(content)
+    local t = {}
+    for line in content:gmatch('[^\r\n]+') do
+        line = line:match('^%s*(.-)%s*$')
+        if line ~= '' and line:sub(1, 1) ~= ';' and line:sub(1, 1) ~= '#' then
+            local key, value = line:match('^([^=]+)%s*=%s*(.*)$')
+            if key and value then
+                local value_num = not key:match('_color$') and tonumber(value)
+                t[key:match('^%s*(.-)%s*$')] = value_num or value
+            end
+        end
+    end
+    return t
+end
+
+function PrintIni()
+    local theme_settings = ExtLoad('theme_settings', {})
+    local theme_key = GetThemeKey(prev_color_theme)
+    local settings = theme_settings[theme_key]
+    if settings then
+        local sorted_settings = {}
+        for k, v in pairs(settings) do
+            sorted_settings[#sorted_settings + 1] = {key = k, value = v}
+        end
+        local function SortByName(t, key)
+            local function Format(d) return ('%03d%s'):format(#d, d) end
+            local function Compare(a, b)
+                local ak, bk = tostring(a[key]), tostring(b[key])
+                local ac, bc = ak:find('_color') ~= nil,
+                    bk:find('_color') ~= nil
+                if ac ~= bc then return bc end
+                return ak:gsub('%d+', Format) < bk:gsub('%d+', Format)
+            end
+            table.sort(t, Compare)
+        end
+        SortByName(sorted_settings, 'key')
+
+        reaper.ClearConsole()
+        reaper.ShowConsoleMsg(box_name:lower() .. '.ini:\n\n')
+        for _, entry in ipairs(sorted_settings) do
+            reaper.ShowConsoleMsg(entry.key .. '=' .. entry.value .. '\n')
+        end
+    else
+        reaper.ShowConsoleMsg('No saved settings')
+    end
+end
+
+function LoadIntegratedSettings(theme_path)
+    local file_name = box_name:lower() .. '.ini'
+    if not theme_path:lower():match('%.reaperthemezip$') then
+        -- Read theme file to get image resource path
+        local theme_file = io.open(theme_path, 'r')
+        if not theme_file then return nil, 'Could not read theme file' end
+        local content = theme_file:read('*a')
+        theme_file:close()
+
+        local ui_img
+        for line in content:gmatch('[^\r\n]+') do
+            ui_img = line:match('^%s*ui_img=(.+)%s*$')
+            if ui_img then break end
+        end
+
+        if not ui_img then return nil, 'Could not parse theme file' end
+
+        local theme_dir = theme_path:match('^(.+)/')
+        if is_windows then theme_dir = theme_path:match('^(.+)\\') end
+
+        if ui_img:lower():match('%.reaperthemezip$') then
+            -- Image resource path is a zipped
+            theme_path = ConcatPath(theme_dir, ui_img)
+        else
+            -- Image resource path is unzipped
+            local config_path = ConcatPath(theme_dir, ui_img, file_name)
+            if not reaper.file_exists(config_path) then return nil, 'No config' end
+
+            local config_file = io.open(config_path, 'r')
+            if not config_file then return nil, 'Could not read config file' end
+            content = config_file:read('*a')
+            config_file:close()
+
+            local config = ParseIni(content)
+            if not next(config) then return nil, 'Empty config' end
+            return config
+        end
+    end
+
+    local zip, err = reaper.JS_Zip_Open(theme_path, 'r', 0)
+    if err ~= 0 then return nil, reaper.JS_Zip_ErrorString(err) end
+
+    local count, list = reaper.JS_Zip_ListAllEntries(zip)
+    if count < 0 then
+        reaper.JS_Zip_Close(theme_path, zip)
+        return nil, reaper.JS_Zip_ErrorString(count)
+    end
+
+    local found_entry = nil
+    for entry in list:gmatch('[^%z]+') do
+        if entry:find(file_name, 1, true) then
+            found_entry = entry
+            break
+        end
+    end
+
+    if not found_entry then
+        reaper.JS_Zip_Close(theme_path, zip)
+        return nil, 'Entry not found: ' .. file_name
+    end
+
+    local ret = reaper.JS_Zip_Entry_OpenByName(zip, found_entry)
+    if ret ~= 0 then
+        reaper.JS_Zip_Close(theme_path, zip)
+        return nil, reaper.JS_Zip_ErrorString(ret)
+    end
+
+    local bytes, content = reaper.JS_Zip_Entry_ExtractToMemory(zip)
+    reaper.JS_Zip_Entry_Close(zip)
+    reaper.JS_Zip_Close(theme_path, zip)
+
+    if bytes < 0 then
+        return nil, reaper.JS_Zip_ErrorString(bytes)
+    end
+
+    local config = ParseIni(content)
+    if not next(config) then return nil, 'Empty config' end
+    return config
+end
+
+function SetThemeIntegration(value)
+    local i = 0
+    local param_pattern = box_name:lower()
+    repeat
+        local ret, desc, val, def, min, max = reaper.ThemeLayout_GetParameter(i)
+        if desc and desc:lower():match(param_pattern) then
+            if val ~= value and def == 0 and min == 0 and max == 1 then
+                reaper.ThemeLayout_SetParameter(i, value, false)
+                reaper.ThemeLayout_RefreshAll()
+            end
+            break
+        end
+        i = i + 1
+    until not ret
+end
+
+function GetThemeKey(path)
+    if path == '' then
+        -- Note: Theme path can be empty in new REAPER installations?
+        local reaper_version = reaper.GetAppVersion():match('[%d]+')
+        return ('ColorThemes/Default_%s.0'):format(reaper_version)
+    end
+    -- Use relative path if inside resource directory
+    local resource_dir = reaper.GetResourcePath()
+    -- Note: Using find to suppress matching special characters in path
+    local _, end_idx = path:find(resource_dir, 0, true)
+    if end_idx then path = path:sub(end_idx + 2) end
+
+    -- Replace windows path separator with unix (make cross-platform)
+    if is_windows then path = path:gsub('\\', '/') end
+    -- Remove file extension
+    path = path:gsub('%.([^./]+)$', '')
+    return path
+end
+
+function GetThemeFromKey(key)
+    local theme_name = key:match('([^/]+)$')
+    if is_windows then key = key:gsub('/', '\\') end
+
+    local function FindInDir(dir)
+        local fallback = nil
+        local i = 0
+        repeat
+            local file_name = reaper.EnumerateFiles(dir, i)
+            if file_name then
+                local file_name_no_ext = file_name:gsub('%.([^./\\]+)$', '')
+                if file_name_no_ext == theme_name then
+                    if file_name:lower():match('%.reaperthemezip$') then
+                        return ConcatPath(dir, file_name)
+                    else
+                        fallback = ConcatPath(dir, file_name)
+                    end
+                end
+            end
+            i = i + 1
+        until not file_name
+        return fallback
+    end
+
+    local dir = is_windows and key:match('^(.+)\\') or key:match('^(.+)/')
+    local result = FindInDir(dir)
+    if result then return result end
+
+    key = ConcatPath(reaper.GetResourcePath(), key)
+    dir = is_windows and key:match('^(.+)\\') or key:match('^(.+)/')
+    return FindInDir(dir)
+end
+
+function LoadThemeSettings(theme_path, only_appeareance)
+    local theme_settings = ExtLoad('theme_settings', {})
+    local theme_key = GetThemeKey(theme_path)
+    local settings = theme_settings[theme_key]
+
+    if not settings then
+        local theme_file = GetThemeFromKey(theme_key)
+        if theme_file then
+            local integrated_settings = LoadIntegratedSettings(theme_file)
+            if integrated_settings then
+                settings = integrated_settings
+                SetEditMode(false)
+            end
+        end
+    end
+
+    local has_settings = settings ~= nil
+    settings = settings or {}
+
+    user_bg_color = settings.bg_color
+    user_text_color = settings.text_color
+    user_border_color = settings.border_color
+    user_swing_color = settings.swing_color
+    user_adaptive_color = settings.adaptive_color
+    user_font_height = settings.font_height
+    user_font_family = settings.font_family
+    user_font_weight = settings.font_weight
+    user_font_yoffs = settings.font_yoffs
+    user_corner_radius = settings.corner_radius
+    user_snap_size = settings.snap_size
+    user_snap_on_color = settings.snap_on_color
+    user_snap_off_color = settings.snap_off_color
+    user_snap_sep_color = settings.snap_sep_color
+
+    if settings.draw_scale and settings.draw_scale ~= draw_scale then
+        local scale = draw_scale / settings.draw_scale
+        user_font_height = Scale(user_font_height, scale)
+        user_font_yoffs = Scale(user_font_yoffs, scale)
+        user_corner_radius = Scale(user_corner_radius, scale)
+        user_snap_size = Scale(user_snap_size, scale)
+    end
+
+    if only_appeareance then return has_settings end
+
+    if attach_window_title then
+        settings = ExtLoad('attach_settings') or settings
+    end
+
+    attach_x = settings.attach_x
+    attach_mode = settings.attach_mode
+    attach_center_x = settings.attach_center_x
+    attach_center_mode = settings.attach_center_mode
+
+    local new_box_x = settings.box_x
+    local new_box_y = settings.box_y
+    local new_box_w = settings.box_w
+    local new_box_h = settings.box_h
+
+    if settings.measure_scale and settings.measure_scale ~= measure_scale then
+        local scale = measure_scale / settings.measure_scale
+        new_box_x = Scale(new_box_x, scale)
+        new_box_y = Scale(new_box_y, scale)
+        new_box_w = Scale(new_box_w, scale)
+        new_box_h = Scale(new_box_h, scale)
+        attach_x = Scale(attach_x, scale)
+        attach_center_x = Scale(attach_center_x, scale)
+    end
+
+    if attach_x or attach_center_x then new_box_x = GetAttachPosition() end
+    SetBoxCoords(new_box_x, new_box_y, new_box_w, new_box_h)
+    local has_box_coords = box_x and box_y and box_w and box_h
+    return (has_box_coords and (has_settings or attach_window_title ~= nil))
+end
+
+function SaveThemeSettings(theme_path)
+    local settings = {
+        box_x = box_x,
+        box_y = box_y,
+        box_w = box_w,
+        box_h = box_h,
+        attach_x = attach_x,
+        attach_mode = attach_mode,
+        attach_center_x = attach_center_x,
+        attach_center_mode = attach_center_mode,
+        bg_color = user_bg_color,
+        text_color = user_text_color,
+        border_color = user_border_color,
+        swing_color = user_swing_color,
+        adaptive_color = user_adaptive_color,
+        font_height = user_font_height,
+        font_family = user_font_family,
+        font_weight = user_font_weight,
+        font_yoffs = user_font_yoffs,
+        corner_radius = user_corner_radius,
+        snap_size = user_snap_size,
+        snap_on_color = user_snap_on_color,
+        snap_off_color = user_snap_off_color,
+        snap_sep_color = user_snap_sep_color,
+        draw_scale = draw_scale,
+        measure_scale = measure_scale,
+    }
+
+    local theme_settings = ExtLoad('theme_settings', {})
+    local theme_key = GetThemeKey(theme_path)
+
+    if attach_window_title then
+        local attach_settings = {
+            box_x = box_x,
+            box_y = box_y,
+            box_w = box_w,
+            box_h = box_h,
+            attach_x = attach_x or attach_center_x,
+            attach_mode = attach_mode or attach_center_mode,
+            measure_scale = measure_scale,
+        }
+        ExtSave('attach_settings', attach_settings)
+
+        local prev_settings = theme_settings[theme_key]
+        if prev_settings then
+            for key in pairs(attach_settings) do
+                settings[key] = prev_settings[key]
+            end
+        end
+    end
+
+    theme_settings[theme_key] = settings
+    ExtSave('theme_settings', theme_settings)
+end
+
+function GetThemeColor(key, flag)
+    local color = reaper.GetThemeColor(key, flag or 0)
+    if is_windows then
+        local r, g, b = reaper.ColorFromNative(color)
+        color = r * 65536 + g * 256 + b
+    end
+    return color
+end
+
+function RGBAToHex(r, g, b, a)
+    local int_color = r * 65536 + g * 256 + b
+    if not a or a == 255 then return ('#%06x'):format(int_color) end
+    return ('#%06x%02x'):format(int_color, a)
+end
+
+function IntToHex(int_color)
+    local r, g, b = reaper.ColorFromNative(int_color)
+    return RGBAToHex(r, g, b)
+end
+
+function TintIntColor(color, factor)
+    local a = color & 0xFF000000
+    local r = (color & 0xFF0000) >> 16
+    local g = (color & 0x00FF00) >> 8
+    local b = (color & 0x0000FF)
+
+    r = (r * factor) // 1
+    g = (g * factor) // 1
+    b = (b * factor) // 1
+
+    r = r < 0 and 0 or r > 255 and 255 or r
+    g = g < 0 and 0 or g > 255 and 255 or g
+    b = b < 0 and 0 or b > 255 and 255 or b
+
+    return (r * 65536 + g * 256 + b) | a
+end
+
+function GetUserColor()
+    local ret, color = reaper.GR_SelectColor(main_hwnd)
+    if ret ~= 0 then return IntToHex(color):gsub('#', '') end
+end
+
+function SetCustomSize()
+    local title = 'Size/Position'
+    local captions = 'Width:,Height:,X pos:,Y pos:'
+
+    local floor = math.floor
+    local curr_vals = {floor(box_w), floor(box_h), floor(box_x), floor(box_y)}
+    local curr_vals_str = table.concat(curr_vals, ',')
+
+    local ret, inputs = reaper.GetUserInputs(title, 4, captions, curr_vals_str)
+    if not ret or inputs == curr_vals_str then return end
+
+    local input_vals = {}
+    for input in (inputs .. ','):gmatch('[^,]*') do
+        input_vals[#input_vals + 1] = tonumber(input)
+    end
+
+    local x, y, w, h
+    if input_vals[1] then w = floor(input_vals[1] + 0.5) end
+    if input_vals[2] then h = floor(input_vals[2] + 0.5) end
+    if input_vals[3] then x = floor(input_vals[3] + 0.5) end
+    if input_vals[4] then y = floor(input_vals[4] + 0.5) end
+    SetBoxCoords(x, y, w, h)
+
+    UpdateAttachPosition()
+    EnsureBoxVisible()
+
+    SaveThemeSettings(prev_color_theme)
+end
+
+function SetCustomCornerRadius()
+    local title = 'Corners'
+    local captions = 'Corner radius: (e.g. 4)'
+
+    local curr_vals_str = ('%s'):format(user_corner_radius or '')
+
+    local ret, inputs = reaper.GetUserInputs(title, 1, captions, curr_vals_str)
+    if not ret or inputs == curr_vals_str then return end
+
+    local input_vals = {}
+    for input in (inputs .. ','):gmatch('[^,]*') do
+        input_vals[#input_vals + 1] = input
+    end
+
+    user_corner_radius = tonumber(input_vals[1])
+    user_corner_radius = user_corner_radius and math.floor(user_corner_radius)
+    is_redraw = true
+
+    SaveThemeSettings(prev_color_theme)
+end
+
+function SetCustomFont()
+    local title = 'Font'
+    local captions = 'Height: (e.g.42),Family (e.g. Comic Sans):,\z
+        Weight (0/400/700):,Y offset:,extrawidth=50'
+
+    local curr_vals_str = ('%s,%s,%s,%s'):format(
+        user_font_height or '',
+        user_font_family or '',
+        user_font_weight or '',
+        user_font_yoffs or ''
+    )
+
+    local ret, inputs = reaper.GetUserInputs(title, 4, captions, curr_vals_str)
+    if not ret or inputs == curr_vals_str then return end
+
+    local input_vals = {}
+    for input in (inputs .. ','):gmatch('[^,]*') do
+        input_vals[#input_vals + 1] = input
+    end
+
+    user_font_height = tonumber(input_vals[1])
+    user_font_family = input_vals[2]
+    if user_font_family == '' then user_font_family = nil end
+    user_font_weight = tonumber(input_vals[3])
+    user_font_yoffs = tonumber(input_vals[4])
+    is_resize = true
+
+    SaveThemeSettings(prev_color_theme)
+end
+
+function SetCustomSnapSize()
+    local title = 'Snap'
+    local captions = 'Icon size: (e.g.24),extrawidth=50'
+
+    local curr_vals_str = ('%s'):format(
+        user_snap_size or '')
+
+    local ret, inputs = reaper.GetUserInputs(title, 1, captions, curr_vals_str)
+    if not ret or inputs == curr_vals_str then return end
+
+    local input_vals = {}
+    for input in (inputs .. ','):gmatch('[^,]*') do
+        input_vals[#input_vals + 1] = input
+    end
+
+    user_snap_size = tonumber(input_vals[1])
+    is_resize = true
+
+    SaveThemeSettings(prev_color_theme)
+
+    if user_snap_size and user_snap_size // 0.4 > box_w / 1.3 then
+        local msg = 'You entered a large size. Snap icon will not be \z
+        visible.\n\nReduce the size or expand Gridbox to make it show.'
+        reaper.MB(msg, 'Warning', 0)
+    end
+end
+
+function SetCustomColors()
+    local title = 'Custom Colors'
+    local captions = 'Background: (e.g. #525252),Text:,Border:,Swing:,\z
+        Adaptive:,Snap on:,Snap off:,Snap separator:'
+
+    local curr_vals = {}
+    local function AddCurrentValue(color)
+        local hex_num = color and tonumber(color, 16)
+        local pattern = color and #color == 8 and ('#%.8X') or ('#%.6X')
+        curr_vals[#curr_vals + 1] = hex_num and pattern:format(hex_num) or ''
+    end
+
+    AddCurrentValue(user_bg_color)
+    AddCurrentValue(user_text_color)
+    AddCurrentValue(user_border_color)
+    AddCurrentValue(user_swing_color)
+    AddCurrentValue(user_adaptive_color)
+    AddCurrentValue(user_snap_on_color)
+    AddCurrentValue(user_snap_off_color)
+    AddCurrentValue(user_snap_sep_color)
+
+    local curr_vals_str = table.concat(curr_vals, ',')
+
+    local ret, inputs = reaper.GetUserInputs(title, 8, captions, curr_vals_str)
+    if not ret or inputs == curr_vals_str then return end
+
+    local colors = {}
+    local has_invalid_color = false
+
+    local function ValidateColor(color)
+        local is_valid = #color <= 8 and tonumber(color, 16)
+        if not is_valid then has_invalid_color = true end
+        return is_valid and color or nil
+    end
+
+    local i = 1
+    for input in (inputs .. ','):gmatch('[^,]*') do
+        input = input:gsub('^#', '')
+        if input == '' then input = nil else input = ValidateColor(input) end
+        colors[i] = input
+        i = i + 1
+    end
+
+    user_bg_color = colors[1]
+    user_text_color = colors[2]
+    user_border_color = colors[3]
+    user_swing_color = colors[4]
+    user_adaptive_color = colors[5]
+    user_snap_on_color = colors[6]
+    user_snap_off_color = colors[7]
+    user_snap_sep_color = colors[8]
+
+    SaveThemeSettings(prev_color_theme)
+    is_redraw = true
+
+    if has_invalid_color then
+        local msg = 'Please specify colors in hexadecimal format! (#RRGGBB)'
+        reaper.MB(msg, 'Invalid input', 0)
+    end
+end
+
+function InvalidateBoxRect()
+    if not box_x then return end
+    reaper.JS_Window_InvalidateRect(window_hwnd, box_x, box_y,
+        box_x + box_w, box_y + box_h, false)
+end
+
+function GetBitmapSize()
+    local pixel_ratio = draw_scale / measure_scale
+    local bm_w, bm_h = box_w * pixel_ratio, box_h * pixel_ratio
+    return math.floor(bm_w), math.floor(bm_h)
+end
+
+function ClearBitmap(bm, color)
+    -- Note: Clear to transparent avoids artifacts on aliased rect corners
+    if is_windows then
+        reaper.JS_LICE_Clear(bm, 0x00000000)
+    else
+        reaper.JS_LICE_Clear(bm, color & 0x00FFFFFF)
+    end
+end
+
+function DrawRect(bm, color, x, y, w, h, fill, r, a)
+    if a == 0 then return end
+    fill = fill or 0
+    r = r or 0
+    a = a or 1
+
+    if not fill or fill == 0 then
+        local LICE_RoundRect = reaper.JS_LICE_RoundRect
+        for _ = 1, math.max(1, draw_scale) do
+            LICE_RoundRect(bm, x, y, w - 1, h - 1, r, color, a, '', true)
+            x, y, w, h = x + 1, y + 1, w - 2, h - 2
+        end
+        return
+    end
+
+    if not r or r == 0 then
+        -- Body
+        reaper.JS_LICE_FillRect(bm, x, y, w, h, color, a, '')
+        return
+    end
+
+    if h <= 2 * r then r = math.floor(h / 2 - 1) end
+    if w <= 2 * r then r = math.floor(w / 2 - 1) end
+
+    -- Top left corner
+    local LICE_FillCircle = reaper.JS_LICE_FillCircle
+    LICE_FillCircle(bm, x + r, y + r, r, color, a, '', true)
+    -- Top right corner
+    LICE_FillCircle(bm, x + w - r - 1, y + r, r, color, a, '', true)
+    -- Bottom right corner
+    LICE_FillCircle(bm, x + w - r - 1, y + h - r - 1, r, color, a, '', true)
+    -- Bottom left corner
+    LICE_FillCircle(bm, x + r, y + h - r - 1, r, color, a, '', true)
+    -- Ends
+    reaper.JS_LICE_FillRect(bm, x, y + r, r, h - r * 2, color, a, '')
+    reaper.JS_LICE_FillRect(bm, x + w - r, y + r, r, h - r * 2, color, a, '')
+    -- Body and sides
+    reaper.JS_LICE_FillRect(bm, x + r, y, w - r * 2, h, color, a, '')
+end
+
+function DrawBackground(bm, bg_color, w, h, corner_r, a)
+    if a == 0 then return end
+    if not bg_bitmap then
+        bg_bitmap = reaper.JS_LICE_CreateBitmap(true, w, h)
+        prev_bg_color = nil
+    end
+
+    if bg_color ~= prev_bg_color or corner_r ~= prev_bg_corner_r then
+        prev_bg_color = bg_color
+        prev_bg_corner_r = corner_r
+        prev_snap_color = nil
+        ClearBitmap(bg_bitmap, bg_color)
+        DrawRect(bg_bitmap, bg_color, 0, 0, w, h, true, corner_r)
+    end
+    reaper.JS_LICE_Blit(bm, 0, 0, bg_bitmap, 0, 0, w, h, a, 'COPY')
+end
+
+function DrawSnapIcon(bm, bg_color, snap_color, x, y, h, a)
+    if a == 0 then return end
+    h = h + 1
+    a = a or 1
+    if not snap_bitmap then
+        snap_bitmap = reaper.JS_LICE_CreateBitmap(true, h, h)
+        prev_snap_color = nil
+    end
+
+    if snap_color ~= prev_snap_color then
+        prev_snap_color = snap_color
+
+        local r = (h - 1) // 2
+        local d = 2 * r + 1
+
+        local function SubtractColors(a, b)
+            local alpha = a & 0xFF000000
+            local function ch(c, s)
+                return math.max(0, ((c >> s) & 0xFF) - ((b >> s) & 0xFF)) << s
+            end
+            return ch(a, 16) | ch(a, 8) | ch(a, 0) | alpha -- R, G, B, A
+        end
+        snap_color = SubtractColors(snap_color, bg_color)
+
+        local FillRect = reaper.JS_LICE_FillRect
+        local LICE_FillCircle = reaper.JS_LICE_FillCircle
+
+        -- Clear bitmap by substracting color
+        FillRect(snap_bitmap, 0, 0, h, h, snap_color, -1, 'ADD')
+
+        -- Draw circle for right side of snap icon
+        LICE_FillCircle(snap_bitmap, r, r, r, snap_color, 1, '', true)
+        LICE_FillCircle(snap_bitmap, r, r, r - 0.5, snap_color, 1, '', true)
+
+        -- Draw rectangle for left side of snap icon
+        FillRect(snap_bitmap, 0, 0, r, d, snap_color, 1, '')
+
+        -- Draw inner circle (subtractive)
+        local inner_r = r // 1.6
+        LICE_FillCircle(snap_bitmap, r, r, inner_r, snap_color, -1, 'ADD', true)
+
+        -- Draw inner rectangle (subtractive)
+        local diff = r - inner_r
+        FillRect(snap_bitmap, 0, diff, r, d - 2 * diff, snap_color, -1, 'ADD')
+        -- Draw snap icon cutoff (subtractive)
+        local snap_cut = r // 3
+        FillRect(snap_bitmap, snap_cut, 0, snap_cut, d, snap_color, -1, 'ADD')
+
+        -- Change icon when relative snap is enabled
+        if prev_is_rel_snap then
+            FillRect(snap_bitmap, 0, 0, snap_cut, d, snap_color, 1, '')
+        end
+    end
+    reaper.JS_LICE_Blit(bm, x, y, snap_bitmap, 0, 0, h, h, a, 'ADD')
+end
+
+function DrawBitmap(bm, w, h)
+    local alpha = 0xFF000000
+
+    -- Determine background color
+    local bg_color = tonumber(user_bg_color or '242424', 16)
+    local bg_alpha = 1
+    if user_bg_color and #user_bg_color > 6 then
+        bg_alpha = (bg_color >> 24) / 255
+    end
+    bg_color = bg_color | alpha
+
+    ClearBitmap(bm, bg_color)
+
+    -- Draw background
+    local corner_radius
+    if user_corner_radius then
+        corner_radius = math.floor(user_corner_radius)
+    else
+        corner_radius = Scale(6, draw_scale)
+    end
+    DrawBackground(bm, bg_color, w, h, corner_radius, bg_alpha)
+
+    -- Determine border color
+    local border_color
+    local border_alpha = 1
+    if user_border_color then
+        border_color = tonumber(user_border_color or '242424', 16)
+        if #user_border_color > 6 then
+            border_alpha = (border_color >> 24) / 255
+        end
+        border_color = border_color | alpha
+    end
+    -- Draw border
+    if border_color then
+        DrawRect(bm, border_color, 0, 0, w, h, false,
+            corner_radius, border_alpha)
+    end
+
+    local snap_h = user_snap_size
+    snap_h = snap_h or h - 2 * math.max(Scale(4, draw_scale), h // 4)
+
+    local left_w = snap_h // 0.4
+    snap_w = left_w * measure_scale / draw_scale
+    local right_w = w - left_w
+    -- Check if snap icon will be visible
+    local is_snap_hidden = hide_snap or snap_h == 0 or left_w == 0
+    if not is_snap_hidden then
+        local hide_factor = user_snap_size and 1.3 or 2.3
+        is_snap_hidden = left_w > w / hide_factor
+    end
+    if is_snap_hidden then
+        snap_w = 0
+        left_w = 0
+        right_w = w
+    else
+        local snap_on_color, snap_off_color, snap_sep_color
+        local snap_on_alpha, snap_off_alpha, snap_sep_alpha = 1, 1, 1
+        -- Determine snap on color
+        if user_snap_on_color then
+            snap_on_color = tonumber(user_snap_on_color, 16)
+            if #user_snap_on_color > 6 then
+                snap_on_alpha = (snap_on_color >> 24) / 255
+            end
+            snap_on_color = snap_on_color | alpha
+        else
+            snap_on_color = GetThemeColor('areasel_outline') | alpha
+        end
+        -- Determine snap off color
+        snap_off_color = tonumber(user_snap_off_color or '787878', 16)
+        if user_snap_off_color and #user_snap_off_color > 6 then
+            snap_off_alpha = (snap_off_color >> 24) / 255
+        end
+        snap_off_color = snap_off_color | alpha
+        -- Determine snap separator color
+        snap_sep_color = tonumber(user_snap_sep_color or '3a3a3b', 16)
+        if user_snap_sep_color and #user_snap_sep_color > 6 then
+            snap_sep_alpha = (snap_sep_color >> 24) / 255
+        end
+        snap_sep_color = snap_sep_color | alpha
+
+        -- Choose snap color based on snap state
+        local snap_alpha = prev_is_snap and snap_on_alpha or snap_off_alpha
+        local snap_color = prev_is_snap and snap_on_color or snap_off_color
+        if prev_is_snap_hovered then
+            -- Slightly brighten snap color when hovered
+            snap_color = TintIntColor(snap_color, 1.145)
+        end
+        -- Draw snap icon
+        local snap_x = (left_w - snap_h) // 1.78
+        local snap_y = (h - snap_h) // 2
+        DrawSnapIcon(bm, bg_color, snap_color, snap_x, snap_y, snap_h, snap_alpha)
+        -- Draw snap separator
+        local m = math.max(Scale(4, draw_scale), h // 14)
+        local sep_w = math.max(1, Scale(1, draw_scale))
+        local sep_x = left_w - sep_w
+        local sep_h = h - 2 * m
+        DrawRect(bm, snap_sep_color, sep_x, m, sep_w, sep_h, true, 0,
+            snap_sep_alpha)
+    end
+
+    -- Draw swing slider
+    if prev_swing_amt ~= 0 then
+        --Determine swing color
+        local swing_color
+        local swing_alpha = 1
+        if user_swing_color then
+            swing_color = tonumber(user_swing_color, 16)
+            if #user_swing_color > 6 then
+                swing_alpha = (swing_color >> 24) / 255
+            end
+            swing_color = swing_color | alpha
+        else
+            swing_color = GetThemeColor('areasel_outline') | alpha
+        end
+        -- Draw swing slider
+        local m = Scale(4, draw_scale)
+        local slider_h = Scale(3, draw_scale)
+        local y_offs = border_color and Scale(1, draw_scale) or 0
+        local value = prev_swing_amt
+
+        local swing_len = math.ceil(math.abs(value) * (right_w - 2 * m) / 2)
+
+        local x_offs = left_w
+        if value > 0 then
+            x_offs = x_offs + right_w // 2
+        else
+            x_offs = x_offs + math.ceil(right_w / 2) - swing_len
+        end
+        DrawRect(bm, swing_color, x_offs, h - slider_h - y_offs,
+            swing_len, slider_h, true, 0, swing_alpha)
+    end
+
+    -- Measure Text
+    local icon_w = 0
+    if is_adaptive then icon_w = gfx.measurestr('A') * 4 // 3 end
+
+    -- If text with "Swing:" prefix doesn't fit, remove prefix
+    if grid_text:match('^Swing:') then
+        local text_w = gfx.measurestr('Swing: -100%')
+        if text_w > right_w then
+            grid_text = grid_text:gsub('^Swing:', '')
+        end
+    end
+    local text_w, text_h = gfx.measurestr(grid_text)
+
+    local text_x = (right_w - text_w + icon_w) // 2
+    local text_y = (h - text_h) // 2
+    if is_macos then text_y = text_y + 1 end
+    text_y = text_y + (user_font_yoffs or 0)
+
+    local m = Scale(2, draw_scale)
+    if text_x - icon_w < m then
+        text_x = icon_w + m
+    end
+    text_x = text_x + left_w
+
+    -- Determine text color
+    local text_color = tonumber(user_text_color or 'a9a9a9', 16) | alpha
+
+    -- Draw Text
+    reaper.JS_LICE_SetFontColor(lice_font, text_color)
+    local len = tostring(grid_text):len()
+    local LICE_DrawText = reaper.JS_LICE_DrawText
+    LICE_DrawText(bm, lice_font, grid_text, len, text_x, text_y, w, h)
+
+    -- Draw adaptive icon (A)
+    if icon_w > 0 then
+        -- Determine adaptive color
+        local adaptive_color
+        if user_adaptive_color then
+            adaptive_color = tonumber(user_adaptive_color, 16) | alpha
+        else
+            adaptive_color = text_color
+        end
+        reaper.JS_LICE_SetFontColor(lice_font, adaptive_color)
+        LICE_DrawText(bm, lice_font, 'A', 1, text_x - icon_w, text_y, w, h)
+    end
+end
+
+function DecimalToFraction(x, error)
+    error = error or 0.0000000001
+    local n = math.floor(x)
+    x = x - n
+    if x < error then
+        return n, 1
+    elseif 1 - error < x then
+        return n + 1, 1
+    end
+
+    local lower_n = 0
+    local lower_d = 1
+
+    local upper_n = 1
+    local upper_d = 1
+
+    while true do
+        local middle_n = lower_n + upper_n
+        local middle_d = lower_d + upper_d
+        if middle_d * (x + error) < middle_n then
+            upper_n = middle_n
+            upper_d = middle_d
+        elseif middle_n < (x - error) * middle_d then
+            lower_n = middle_n
+            lower_d = middle_d
+        else
+            return n * middle_d + middle_n, middle_d
+        end
+    end
+end
+
+local LoadCursor = reaper.JS_Mouse_LoadCursor
+local normal_cursor = LoadCursor(is_windows and 32512 or 0)
+local diag1_resize_cursor = LoadCursor(is_linux and 32642 or 32643)
+local diag2_resize_cursor = LoadCursor(is_linux and 32643 or 32642)
+local horz_resize_cursor = LoadCursor(32644)
+local vert_resize_cursor = LoadCursor(32645)
+local move_cursor = LoadCursor(32646)
+
+local Intercept = reaper.JS_WindowMessage_Intercept
+local Release = reaper.JS_WindowMessage_Release
+local Peek = reaper.JS_WindowMessage_Peek
+
+local is_edit_mode = ExtLoad('is_edit_mode', true)
+
+local prev_cursor = normal_cursor
+local is_intercept = false
+
+local intercepts = {
+    {timestamp = 0, passthrough = false, message = 'WM_SETCURSOR'},
+    {timestamp = 0, passthrough = false, message = 'WM_LBUTTONDOWN'},
+    {timestamp = 0, passthrough = false, message = 'WM_LBUTTONUP'},
+    {timestamp = 0, passthrough = false, message = 'WM_RBUTTONDOWN'},
+    {timestamp = 0, passthrough = false, message = 'WM_RBUTTONUP'},
+    {timestamp = 0, passthrough = false, message = 'WM_MOUSEWHEEL'},
+}
+
+function SetCursor(cursor)
+    if not is_intercept then return end
+    reaper.JS_Mouse_SetCursor(cursor)
+    prev_cursor = cursor
+end
+
+function IsInterceptBlocked(hwnd)
+    local _, intercept_str = reaper.JS_WindowMessage_ListIntercepts(hwnd)
+    local blocked_messages = {}
+    for entry in (intercept_str .. ','):gmatch('(.-),') do
+        local blocked_message = entry:match('(.-):block')
+        if blocked_message then blocked_messages[blocked_message] = true end
+    end
+    for _, intercept in ipairs(intercepts) do
+        local msg = intercept.message
+        if blocked_messages[msg] then return true end
+    end
+    return false
+end
+
+function StartIntercepts()
+    if is_intercept then return end
+    if IsInterceptBlocked(window_hwnd) then return end
+    is_intercept = true
+    for _, intercept in ipairs(intercepts) do
+        Intercept(window_hwnd, intercept.message, intercept.passthrough)
+    end
+end
+
+function EndIntercepts()
+    if not is_intercept then return end
+    if prev_cursor ~= normal_cursor then
+        SetCursor(normal_cursor)
+    end
+    for _, intercept in ipairs(intercepts) do
+        Release(window_hwnd, intercept.message)
+        intercept.timestamp = 0
+    end
+    is_intercept = false
+    prev_cursor = -1
+end
+
+function SetEditMode(mode)
+    is_edit_mode = mode
+    ExtSave('is_edit_mode', mode)
+end
+
+function LoadMenuScript()
+    local env = setmetatable({menu = true, cmd = menu_cmd}, {__index = _G})
+    env._G = env
+    local menu_chunk, err = loadfile(menu_script, 'bt', env)
+    if menu_chunk then
+        menu_chunk()
+        if type(env._G.menu) ~= 'table' then
+            local err_msg = 'Please update Adaptive Grid to latest version'
+            reaper.MB(err_msg:format(menu_script, err), box_name, 0)
+            return
+        end
+        return env
+    end
+    local err_msg = 'Could not load script: %s:\n%s'
+    reaper.MB(err_msg:format(menu_script, err), box_name, 0)
+end
+
+function PeekIntercepts(m_x, m_y)
+    if not is_intercept then return end
+    for _, intercept in ipairs(intercepts) do
+        local msg = intercept.message
+        local ret, _, time, _, wph = Peek(window_hwnd, msg)
+
+        if ret and time ~= intercept.timestamp then
+            intercept.timestamp = time
+
+            if msg == 'WM_LBUTTONDOWN' then
+                -- Avoid new clicks after showing menu
+                if menu_time and reaper.time_precise() < menu_time + 0.05 then
+                    return
+                end
+                is_left_click = true
+                if reaper.JS_Mouse_GetState(16) == 16 then
+                    if snap_w == 0 or m_x - box_x > snap_w then
+                        swing_drag_x = m_x
+                    end
+                elseif is_edit_mode then
+                    drag_x = m_x
+                    drag_y = m_y
+                end
+            end
+
+            if msg == 'WM_LBUTTONUP' then
+                if not is_left_click then return end
+                if is_swing_drag then return end
+
+                local all_mods_pressed = reaper.JS_Mouse_GetState(28) == 28
+                if all_mods_pressed then
+                    PrintIni()
+                    return
+                end
+
+                -- Check if left section is pressed
+                if snap_w > 0 and m_x - box_x < snap_w then
+                    -- Check if alt is pressed
+                    if reaper.JS_Mouse_GetState(16) == 16 then
+                        -- Item edit: Toggle relative grid snap
+                        reaper.Main_OnCommand(41054, 0)
+                    else
+                        -- Options: Toggle snapping
+                        reaper.Main_OnCommand(1157, 0)
+                    end
+                    return
+                end
+
+                -- Make sure menu is loaded
+                menu_env = menu_env or LoadMenuScript()
+                if not menu_env then return end
+
+                -- Check if alt is pressed
+                if reaper.JS_Mouse_GetState(16) == 16 then
+                    menu_env.SetStraightGrid()
+                    local _, grid_div, swing, swing_amt = GetSetGrid(0, 0)
+                    local new_swing = swing ~= 1 and 1 or 0
+                    GetSetGrid(0, 1, nil, new_swing, swing_amt)
+                    menu_env.SaveProjectGrid(grid_div, new_swing, swing_amt)
+                    return
+                end
+                if resize_flags == 0 or math.min(box_w, box_h) < min_box_size * 1.5 then
+                    -- Show adaptive grid menu
+                    local new_menu_env = LoadMenuScript()
+                    if new_menu_env then ShowMenu(new_menu_env._G.menu) end
+                    local main_mult = menu_env.GetGridMultiplier()
+                    local midi_mult = menu_env.GetMIDIGridMultiplier()
+                    menu_env.UpdateToolbarToggleStates(0, main_mult)
+                    menu_env.UpdateToolbarToggleStates(32060, midi_mult)
+                end
+            end
+
+            if msg == 'WM_RBUTTONDOWN' then
+                -- Avoid new clicks after showing menu
+                if menu_time and reaper.time_precise() < menu_time + 0.05 then
+                    return
+                end
+                is_right_click = true
+            end
+
+            if msg == 'WM_RBUTTONUP' then
+                if not is_right_click then return end
+                -- Check if left section is pressed
+                if snap_w > 0 and m_x - box_x < snap_w then
+                    -- Options: Show snap/grid settings
+                    reaper.Main_OnCommand(40071, 0)
+                    return
+                end
+                ShowRightClickMenu()
+            end
+
+            if msg == 'WM_MOUSEWHEEL' then
+                -- Check if left section is hovered
+                if snap_w > 0 and m_x - box_x < snap_w then return end
+
+                -- Make sure menu is loaded
+                menu_env = menu_env or LoadMenuScript()
+                if not menu_env then return end
+
+                wph = wph * scroll_dir
+                local mouse_state = reaper.JS_Mouse_GetState(20)
+                -- Check if alt is pressed
+                if mouse_state & 16 == 16 then
+                    wph = wph / math.abs(wph)
+                    local _, grid_div, swing, swing_amt = GetSetGrid(0, 0)
+                    if swing == 0 then
+                        menu_env.SetStraightGrid()
+                        -- Note: Enable for "Adjust items when changing swing"
+                        GetSetGrid(0, 1, nil, 1, swing_amt)
+                    end
+                    -- Scroll slower when Ctrl is pressed
+                    local amt = wph * (mouse_state == 20 and 0.01 or 0.03)
+                    swing_amt = math.floor((swing_amt + amt) * 100 + 0.5) / 100
+                    GetSetGrid(0, 1, nil, 1, swing_amt)
+                    menu_env.SaveProjectGrid(grid_div, swing, swing_amt)
+                else
+                    local ext = 'FTC.AdaptiveGrid'
+                    -- Calculate new grid division
+                    local _, grid_div, swing, swing_amt = GetSetGrid(0, 0)
+                    menu_env.SaveProjectGrid(grid_div, swing, swing_amt)
+                    local factor = reaper.GetExtState(ext, 'zoom_div')
+                    factor = tonumber(factor) or 2
+                    grid_div = wph < 0 and grid_div * factor or grid_div / factor
+                    -- Respect user limits
+                    local min_grid_div = reaper.GetExtState(ext, 'min_limit')
+                    min_grid_div = tonumber(min_grid_div) or 0
+                    if min_grid_div == 0 then min_grid_div = 1 / 4096 * 2 / 3 end
+                    if grid_div < min_grid_div then
+                        if wph > 0 then return end
+                    end
+                    local max_grid_div = reaper.GetExtState(ext, 'max_limit')
+                    max_grid_div = tonumber(max_grid_div) or 0
+                    if max_grid_div == 0 then max_grid_div = 4096 * 3 / 2 end
+                    if grid_div > max_grid_div then
+                        if wph < 0 then return end
+                    end
+                    if not menu_env.LoadProjectGrid(grid_div) then
+                        GetSetGrid(0, 1, grid_div, swing, swing_amt)
+                    end
+                end
+            end
+        end
+    end
+end
+
+function ShowRightClickMenu()
+    local other_theme_menu = {}
+    local curr_theme_key = GetThemeKey(prev_color_theme)
+    local theme_settings = ExtLoad('theme_settings', {})
+    for theme_key in pairs(theme_settings) do
+        if theme_key ~= curr_theme_key then
+            local title = theme_key
+            if not GetThemeFromKey(theme_key) then
+                title = title .. ' (not found)'
+            end
+            if is_windows then title = title:gsub('/', '\\') end
+            other_theme_menu[#other_theme_menu + 1] = {
+                title = title,
+                OnReturn = function()
+                    local is_shift_pressed = reaper.JS_Mouse_GetState(8) == 8
+                    if is_shift_pressed then
+                        local msg = 'Permanently delete all customizations for \z
+                            this theme?\n\n%s'
+                        local ret = reaper.MB(msg:format(theme_key), 'Warning', 1)
+                        if ret == 1 then
+                            SaveThemeSettings(prev_color_theme)
+                            theme_settings[theme_key] = nil
+                            ExtSave('theme_settings', theme_settings)
+                            prev_color_theme = nil
+                        end
+                        return
+                    end
+                    local msg = 'Attempt to load size and position?'
+                    local ret = reaper.MB(msg, 'Settings', 3)
+                    if ret >= 6 then
+                        LoadThemeSettings(theme_key .. '.ReaperTheme', ret ~= 6)
+                        SaveThemeSettings(prev_color_theme)
+                        prev_color_theme = nil
+                    end
+                end,
+            }
+        end
+    end
+
+    if #other_theme_menu > 0 then
+        -- Sorts the menu entries alphanumerically
+        local function SortByName(t, key)
+            local function Format(d) return ('%03d%s'):format(#d, d) end
+            local function Compare(a, b)
+                return tostring(a[key]):gsub('%d+', Format) <
+                    tostring(b[key]):gsub('%d+', Format)
+            end
+            table.sort(t, Compare)
+        end
+        -- Add title and help info entry
+        SortByName(other_theme_menu, 'title')
+        table.insert(other_theme_menu, 1,
+            {
+                title = 'Hold shift to delete settings for theme',
+                is_grayed = true,
+            }
+        )
+        table.insert(other_theme_menu, 2, {separator = true})
+        other_theme_menu.title = 'Load from'
+    end
+
+    local curr_attach_mode = GetAttachMode()
+
+    local comp_fps_entry = {}
+    if is_windows then
+        comp_fps_entry = {
+            title = 'Anti-flickering',
+            is_checked = comp_fps ~= 30,
+            OnReturn = function()
+                local title = 'Limit underlying window frame rate (FPS)'
+                local caption = 'FPS: (lower FPS -> less flicker)'
+
+                local GetUserInputs = reaper.GetUserInputs
+                local ret, input = GetUserInputs(title, 1, caption, comp_fps)
+                if not ret then return end
+                comp_fps = tonumber(input) or 30
+                comp_fps = math.max(0, comp_fps)
+                comp_delay = comp_fps == 0 and 0 or 1 / comp_fps
+                reaper.SetExtState(extname, 'comp_fps', comp_fps, 1)
+                is_resize = true
+            end,
+        }
+    end
+
+    local menu = {
+        {
+            title = 'Customize',
+            {title = 'Size', OnReturn = SetCustomSize},
+            {title = 'Font', OnReturn = SetCustomFont},
+            {title = 'Snap', OnReturn = SetCustomSnapSize},
+            {title = 'Corners', OnReturn = SetCustomCornerRadius},
+            {separator = true},
+            {title = 'Colors', OnReturn = SetCustomColors},
+            {
+                title = 'Choose color...',
+                {
+                    title = 'Background',
+                    OnReturn = function()
+                        user_bg_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+                {
+                    title = 'Text',
+                    OnReturn = function()
+                        user_text_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+                {
+                    title = 'Border',
+                    OnReturn = function()
+                        user_border_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+                {
+                    title = 'Swing',
+                    OnReturn = function()
+                        user_swing_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+                {
+                    title = 'Adaptive',
+                    OnReturn = function()
+                        user_adaptive_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+                {
+                    title = 'Snap on',
+                    OnReturn = function()
+                        user_snap_on_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+                {
+                    title = 'Snap off',
+                    OnReturn = function()
+                        user_snap_off_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+                {
+                    title = 'Snap separator',
+                    OnReturn = function()
+                        user_snap_sep_color = GetUserColor()
+                        SaveThemeSettings(prev_color_theme)
+                        is_redraw = true
+                    end,
+                },
+            },
+            {separator = true},
+            {
+                title = 'Attach to',
+                {
+                    title = 'Left status edge',
+                    is_checked = curr_attach_mode == 3,
+                    is_grayed = attach_window_title ~= nil,
+                    OnReturn = function()
+                        SetAttachMode(3)
+                        UpdateAttachPosition()
+                        SaveThemeSettings(prev_color_theme)
+                    end,
+                },
+                {
+                    title = 'Right status edge',
+                    is_checked = curr_attach_mode == 4,
+                    is_grayed = attach_window_title ~= nil,
+                    OnReturn = function()
+                        SetAttachMode(4)
+                        UpdateAttachPosition()
+                        SaveThemeSettings(prev_color_theme)
+                    end,
+                },
+                {
+                    title = 'Left window edge',
+                    is_checked = curr_attach_mode == 1,
+                    OnReturn = function()
+                        SetAttachMode(1)
+                        UpdateAttachPosition()
+                        SaveThemeSettings(prev_color_theme)
+                    end,
+                },
+                {
+                    title = 'Right window edge',
+                    is_checked = curr_attach_mode == 2,
+                    OnReturn = function()
+                        SetAttachMode(2)
+                        UpdateAttachPosition()
+                        SaveThemeSettings(prev_color_theme)
+                    end,
+                },
+            },
+            {separator = true},
+            other_theme_menu,
+            {
+                title = 'Reset',
+                OnReturn = function()
+                    local msg = 'This will clear all customizations you made \z
+                    for the active theme.\n\nProceed?'
+                    local ret = reaper.MB(msg, 'Warning', 4)
+                    if ret ~= 6 then return end
+
+                    local settings = ExtLoad('theme_settings', {})
+                    local theme_key = GetThemeKey(prev_color_theme)
+                    settings[theme_key] = nil
+                    ExtSave('theme_settings', settings)
+                    prev_color_theme = nil
+
+                    if attach_window_title then
+                        msg = 'Move %s back to transport?'
+                        ret = reaper.MB(msg:format(box_name), box_name, 4)
+                        if ret == 6 then
+                            SaveAttachedWindow(nil)
+                            EndIntercepts()
+                            window_hwnd = nil
+                            prev_top_window_hash = nil
+                        end
+                    end
+                end,
+            },
+        },
+        {
+            title = 'Preferences',
+            {
+                title = 'Reverse scroll',
+                is_checked = scroll_dir < 0,
+                OnReturn = function()
+                    scroll_dir = scroll_dir > 0 and -1 or 1
+                    reaper.SetExtState(extname, 'scroll_dir', scroll_dir, true)
+                end,
+            },
+            {
+                title = 'Show snap button (when space)',
+                is_checked = not hide_snap,
+                OnReturn = function()
+                    hide_snap = not hide_snap
+                    local val = hide_snap and 1 or 0
+                    reaper.SetExtState(extname, 'hide_snap', val, true)
+                    is_redraw = true
+                end,
+            },
+            {
+                title = 'Display visible grid',
+                is_checked = use_vis_grid,
+                OnReturn = function()
+                    use_vis_grid = not use_vis_grid
+                    local val = use_vis_grid and 1 or 0
+                    reaper.SetExtState(extname, 'use_vis_grid', val, true)
+                    if use_vis_grid then
+                        local msg = 'Visible grid can only be displayed for \z
+                            straight grid divisions!'
+                        reaper.MB(msg, 'Notice', 0)
+                    end
+                    prev_hzoom_lvl = nil
+                    prev_grid_div = nil
+                    prev_vis_grid_div = nil
+                end,
+            },
+            comp_fps_entry,
+        },
+        {
+            title = 'Lock position',
+            is_checked = not is_edit_mode,
+            OnReturn = function()
+                SetEditMode(not is_edit_mode)
+            end,
+        },
+        {
+            title = 'Run script on startup',
+            IsChecked = IsStartupHookEnabled,
+            OnReturn = function()
+                local is_enabled = IsStartupHookEnabled()
+                local comment = 'Start script: Gridbox'
+                local var_name = 'grid_box_cmd_name'
+                SetStartupHookEnabled(not is_enabled, comment, var_name)
+
+                menu_env = menu_env or LoadMenuScript()
+                if not menu_env then return end
+
+                comment = 'Start script: Adaptive grid (background process)'
+                var_name = 'adaptive_grid_cmd'
+                local is_adapt_enabled = menu_env.IsStartupHookEnabled()
+                if is_enabled and is_adapt_enabled then
+                    menu_env.SetStartupHookEnabled(false, comment, var_name)
+                end
+                if not is_enabled and not is_adapt_enabled then
+                    menu_env.SetStartupHookEnabled(true, comment, var_name)
+                end
+            end,
+        },
+    }
+    ShowMenu(menu)
+end
+
+function ShowMenu(menu)
+    SetCursor(normal_cursor)
+    EndIntercepts()
+
+    local focus_hwnd = reaper.JS_Window_GetFocus()
+    -- Open gfx window
+    gfx.clear = GetThemeColor('col_main_bg2')
+    local ClientToScreen = reaper.JS_Window_ClientToScreen
+    local window_x, window_y = ClientToScreen(window_hwnd, 0, 0)
+    local m = Scale(4, measure_scale)
+    gfx.init('Box Menu', Scale(24, measure_scale), 0, 0, window_x + m,
+        window_y + m)
+
+    -- Open menu at bottom left corner
+    local menu_x, menu_y = ClientToScreen(window_hwnd, box_x, box_y + box_h)
+    gfx.x, gfx.y = gfx.screentoclient(menu_x, menu_y)
+
+    -- Hide gfx window
+    local gfx_hwnd = reaper.JS_Window_Find('Box Menu', true)
+    reaper.JS_Window_SetOpacity(gfx_hwnd, 'ALPHA', 0)
+
+    if is_linux then
+        reaper.JS_Window_SetStyle(gfx_hwnd, 'POPUP')
+    else
+        reaper.JS_Window_Show(gfx_hwnd, 'HIDE')
+        if focus_hwnd then reaper.JS_Window_SetFocus(focus_hwnd) end
+    end
+
+    -- Show menu
+    local menu_str = CreateMenuRecursive(menu)
+    local ret = gfx.showmenu(menu_str)
+    gfx.quit()
+
+    if focus_hwnd then reaper.JS_Window_SetFocus(focus_hwnd) end
+    if ret > 0 then ReturnMenuRecursive(menu, ret) end
+
+    -- Make sure that user can click box to close menu
+    menu_time = reaper.time_precise()
+    is_left_click = false
+    is_right_click = false
+    drag_x = nil
+end
+
+function GetStatusWindowClientRect()
+    -- Get status window coordinates
+    local status_hwnd = reaper.JS_Window_FindChildByID(window_hwnd, 1010)
+    local _, st_l, st_t, st_r, st_b = reaper.JS_Window_GetRect(status_hwnd)
+    st_l, st_t = reaper.JS_Window_ScreenToClient(window_hwnd, st_l, st_t)
+    st_r, st_b = reaper.JS_Window_ScreenToClient(window_hwnd, st_r, st_b)
+
+    -- Note: Window can be out of transport bounds
+    st_l = math.max(st_l, 0)
+    st_t = math.max(st_t, 0)
+    st_r = math.min(st_r, window_w)
+    st_b = math.min(st_b, window_h)
+
+    return st_l, st_t, st_r, st_b
+end
+
+function SetBoxCoords(x, y, w, h)
+    if w == 0 or h == 0 then return end
+    local has_pos_changed = x and x ~= box_x or y and y ~= box_y
+    local has_size_changed = w and w ~= box_w or h and h ~= box_h
+    if not has_pos_changed and not has_size_changed then return end
+
+    if has_pos_changed then is_redraw = true end
+    if has_size_changed then is_resize = true end
+
+    -- Redraw previous area
+    InvalidateBoxRect()
+
+    box_x, box_y, box_w, box_h = x or box_x, y or box_y, w or box_w, h or box_h
+
+    -- Redraw new area
+    InvalidateBoxRect()
+
+    if not is_resize then
+        -- Change bitmap draw coordinates
+        reaper.JS_Composite_Delay(window_hwnd, comp_delay, comp_delay * 1.5, 2)
+        reaper.JS_Composite(window_hwnd, box_x, box_y, box_w, box_h, bitmap, 0, 0,
+            GetBitmapSize())
+    end
+end
+
+function UpdateAttachPosition()
+    local mode = GetAttachMode()
+    local new_x
+    if mode == 1 then new_x = box_x end
+    if mode == 2 then new_x = box_x - window_w end
+    if mode == 3 then
+        local st_l = GetStatusWindowClientRect()
+        new_x = box_x - st_l
+    end
+    if mode == 4 then
+        local _, _, st_r = GetStatusWindowClientRect()
+        new_x = box_x - st_r
+    end
+    local is_centered = reaper.GetToggleCommandState(40533) == 1
+    if not attach_window_title and is_centered then
+        attach_center_x = new_x
+    else
+        attach_x = new_x
+    end
+end
+
+function GetAttachMode()
+    local mode = attach_mode or attach_center_mode
+    if attach_window_title then
+        -- Note: Status window options are only valid when attached to transport
+        if mode and mode > 2 then mode = mode - 2 end
+    else
+        local is_centered = reaper.GetToggleCommandState(40533) == 1
+        if is_centered then mode = attach_center_mode or attach_mode end
+    end
+    return mode
+end
+
+function SetAttachMode(mode)
+    local is_centered = reaper.GetToggleCommandState(40533) == 1
+    if attach_window_title or not is_centered then
+        attach_mode = mode
+    else
+        attach_center_mode = mode
+    end
+end
+
+function GetAttachPosition()
+    local x = attach_x or attach_center_x
+    if not x then return end
+    if not attach_window_title then
+        local is_centered = reaper.GetToggleCommandState(40533) == 1
+        if is_centered then x = attach_center_x or attach_x end
+    end
+
+    local mode = GetAttachMode()
+    local new_box_x
+    if mode == 1 then
+        new_box_x = x
+    end
+    if mode == 2 then
+        new_box_x = x + window_w
+    end
+    if mode == 3 or mode == 4 then
+        local st_l = GetStatusWindowClientRect()
+        new_box_x = x + st_l
+    end
+    if mode == 4 then
+        local _, _, st_r = GetStatusWindowClientRect()
+        new_box_x = x + st_r
+    end
+    return new_box_x
+end
+
+function EnsureBoxVisible()
+    -- Ensure position/size is within bounds
+    if window_w == 0 or window_h == 0 then return end
+    local w = math.max(min_box_size, math.min(box_w, window_w))
+    local h = math.max(min_box_size, math.min(box_h, window_h))
+
+    local x = math.max(0, math.min(window_w - w, box_x))
+    local y = math.max(0, math.min(window_h - h, box_y))
+
+    if attach_window_title then
+        SetBoxCoords(x, y, w, h)
+        return
+    end
+
+    -- Get status window coordinates
+    local st_l, st_t, st_r, st_b = GetStatusWindowClientRect()
+
+    local st_x = st_l
+    local st_y = st_t
+    local st_w = st_r - st_l
+    local st_h = math.abs(st_b - st_t)
+
+    -- Check if bitmap overlaps or contains status window
+    local is_left = x + w < st_x
+    local is_right = x > st_x + st_w
+    local is_above = y + h < st_y
+    local is_below = y > st_y + st_h
+
+    local is_overlap = not (is_left or is_right or is_above or is_below)
+    local is_contained = x > st_l and x < st_r and y > st_t and y < st_b
+
+    if is_overlap or is_contained then
+        -- Move bitmap to not overlap with status window
+        local space_l = st_l
+        local space_r = window_w - st_r
+        local space_t = st_t
+        local space_b = window_h - st_b
+
+        local new_l_x = st_l - w
+        local new_r_x = st_r
+        local new_t_y = st_t - h
+        local new_b_y = st_b
+
+        local move_x = 0
+        local move_y = 0
+
+        if space_l >= w or space_r >= w then
+            if space_l >= w and space_r >= w then
+                -- Space on both sides, move to closest position
+                move_x = x - new_l_x < new_r_x - x and -1 or 1
+            else
+                -- Space only on one side, move accordingly
+                move_x = space_r > space_l and 1 or -1
+            end
+        elseif space_t >= h or space_b >= h then
+            if space_t >= h and space_b >= h then
+                -- Space on both sides, move to closest position
+                move_y = y - new_t_y < new_b_y - y and -1 or 1
+            else
+                -- Space only on one side, move accordingly
+                move_y = space_b > space_t and 1 or -1
+            end
+        else
+            -- Check if more vertical or horizontal space, move accordingly
+            if math.max(space_l, space_r) > math.max(space_t, space_b) then
+                move_x = space_r > space_l and 1 or -1
+            else
+                move_y = space_b > space_t and 1 or -1
+            end
+        end
+
+        if move_x == -1 then
+            -- Move left
+            x = new_l_x
+            w = math.min(w, space_l)
+        end
+        if move_x == 1 then
+            -- Move right
+            x = new_r_x
+            w = math.min(w, space_r)
+        end
+        if move_y == -1 then
+            -- Move top
+            y = new_t_y
+            h = math.min(h, space_t)
+        end
+        if move_y == 1 then
+            -- Move bottom
+            y = new_b_y
+            h = math.min(h, space_b)
+        end
+
+        -- Ensure position/size is within bounds after move
+        w = math.max(min_box_size, math.min(w, window_w))
+        h = math.max(min_box_size, math.min(h, window_h))
+
+        x = math.max(0, math.min(window_w - w, x))
+        y = math.max(0, math.min(window_h - h, y))
+    end
+
+    SetBoxCoords(x, y, w, h)
+end
+
+function FindInitialPosition()
+    -- Get status window coordinates
+    local st_l, st_t, st_r, st_b = GetStatusWindowClientRect()
+    local st_y = st_t
+    local st_h = math.abs(st_b - st_t)
+
+    -- Set initial position that matches status window
+    box_x = 0
+    box_y = st_y
+    box_w = st_h * 7 // 2
+    box_h = st_h
+
+    -- Add small vertical margin if status window takes up full transport height
+    if st_h >= window_h - Scale(4, measure_scale) then
+        box_y = box_y + Scale(2, measure_scale)
+        box_h = box_h - Scale(4, measure_scale)
+    end
+
+    -- Now we'll use GetThingFromPoint to get empty transport areas on x axis
+    local st_mid_y = st_y + box_h // 2
+    local empty_areas = {}
+
+    local size = 0
+    local sel_cnt = 0
+    local bpm_x
+
+    local function AddEmptyArea(x, y, align)
+        local _, thing = reaper.GetThingFromPoint(x, y)
+
+        if thing == 'trans' then
+            -- Empty transport area, increase size
+            size = size + 1
+        else
+            -- Remember x position of BPM button
+            if not bpm_x and thing:sub(1, 9) == 'trans.bpm' then
+                bpm_x = x
+            end
+            if size > 0 then
+                -- Add previous area
+                if sel_cnt == 0 and size > min_box_size then
+                    local area = {size = size, r = x, align = align}
+                    empty_areas[#empty_areas + 1] = area
+                end
+                size = 0
+                sel_cnt = 0
+            end
+
+            -- Skip areas to the right of selection (selection textboxes)
+            if thing == 'trans.sel' then sel_cnt = sel_cnt + 1 end
+        end
+    end
+
+    local ClientToScreen = reaper.JS_Window_ClientToScreen
+    local x_start, y = ClientToScreen(window_hwnd, 0, st_mid_y)
+    local x_end = ClientToScreen(window_hwnd, st_l, st_mid_y)
+
+    for x = x_start, x_end do
+        AddEmptyArea(x, y, 1)
+    end
+    AddEmptyArea(x_end, -1, 1)
+
+    x_start = ClientToScreen(window_hwnd, st_r, st_mid_y)
+    x_end = ClientToScreen(window_hwnd, window_w, st_mid_y)
+
+    for x = x_start, x_end do
+        AddEmptyArea(x, y, -1)
+    end
+    AddEmptyArea(x_end, -1, 1)
+
+    local target_area
+
+    if bpm_x then
+        local min_bpm_distance
+        for _, area in ipairs(empty_areas) do
+            -- Check if area is large enough
+            if area.size > box_w * 0.7 then
+                local area_x = area.r > bpm_x and area.r or area.r - area.size
+                local diff = bpm_x - area_x
+                local distance = math.abs(diff)
+                -- Check distance to bpm window
+                if not min_bpm_distance or distance < min_bpm_distance then
+                    min_bpm_distance = distance
+                    target_area = area
+                    target_area.align = area.r > bpm_x and -1 or 1
+                end
+            end
+        end
+    end
+
+    if not target_area then
+        -- Find largest empty area
+        local largest_area_size = 0
+        for _, area in ipairs(empty_areas) do
+            if area.size > largest_area_size then
+                target_area = area
+                largest_area_size = area.size
+            end
+        end
+    end
+
+    if target_area then
+        -- Make bitmap a bit larger if it'll then fully fit empty space
+        if target_area.size < box_w * 1.5 then box_w = target_area.size end
+
+        -- Add margin
+        local m = box_h // 6
+        box_w = math.max(min_box_size, math.min(target_area.size - 2 * m, box_w))
+
+        -- Convert back to client coordinates
+        local r = target_area.r
+        r = reaper.JS_Window_ScreenToClient(window_hwnd, r, st_mid_y)
+
+        -- Place bitmap (x pos) in empty target area (based on alignment)
+        if target_area.align > 0 then
+            box_x = math.max(0, r - box_w - m)
+            SetAttachMode(box_x < st_r and 3 or 2)
+        else
+            box_x = math.max(0, r - target_area.size + m)
+            SetAttachMode(box_x < st_r and 1 or 4)
+        end
+    else
+        SetAttachMode(box_x < st_r and 1 or 2)
+    end
+    UpdateAttachPosition()
+end
+
+function IsOwnedByReaperInstance(hwnd)
+    if not hwnd then return false end
+    if hwnd == main_hwnd then return true end
+    if reaper.JS_Window_IsChild(main_hwnd, hwnd) then return true end
+    local current = hwnd
+    local safety_i = 0
+    while current and safety_i < 50 do
+        safety_i = safety_i + 1
+        current = reaper.JS_Window_GetParent(current)
+        if current == main_hwnd then return true end
+    end
+    return false
+end
+
+function FindUniqueWindow(title)
+    local cnt, list = reaper.JS_Window_ListFind(title, true)
+    if cnt == 0 then return nil, 0 end
+
+    local unique_hwnd
+    for addr in (list .. ','):gmatch('(.-),') do
+        local handle = reaper.JS_Window_HandleFromAddress(addr)
+        if IsOwnedByReaperInstance(handle) then
+            if unique_hwnd then
+                unique_hwnd = nil
+                break
+            else
+                unique_hwnd = handle
+            end
+        end
+    end
+    if unique_hwnd then return unique_hwnd, 1 end
+    return nil, cnt
+end
+
+function WaitForAttachedWindow()
+    if attach_window_title == 'REAPER Main Window' then return true end
+    if attach_window_title == 'Active MIDI editor' then return true end
+    return attach_window_wait == attach_window_title
+end
+
+function FindAttachedWindow()
+    local hwnd
+    local window_cnt = 0
+    if attach_window_title == 'REAPER Main Window' then
+        hwnd = main_hwnd
+        window_cnt = 1
+    elseif attach_window_title == 'Active MIDI editor' then
+        hwnd = reaper.MIDIEditor_GetActive()
+        if hwnd then window_cnt = 1 end
+    else
+        local title = attach_window_title or transport_title
+        hwnd, window_cnt = FindUniqueWindow(title)
+
+        if hwnd and attach_window_title then
+            reaper.SetExtState(extname, 'attach_wait', attach_window_title, true)
+        end
+    end
+    if hwnd and attach_window_child_id then
+        hwnd = reaper.JS_Window_FindChildByID(hwnd, attach_window_child_id)
+        if hwnd then window_cnt = 1 end
+    end
+    if hwnd and IsInterceptBlocked(hwnd) then
+        local msg = 'Another script is currently blocking mouse interactions \z
+            with the attached window.\n\nRelease all mouse interactions so %s can work?\n\n\z
+             (Might cause the other script to malfunction)'
+        local ret = reaper.MB(msg:format(box_name), box_name, 4)
+        if ret == 6 then reaper.JS_WindowMessage_ReleaseWindow(hwnd) end
+    end
+    return hwnd, window_cnt
+end
+
+function SaveAttachedWindow(title, child_id)
+    if not title or title == transport_title and not child_id then
+        attach_window_title = nil
+        attach_window_child_id = nil
+        reaper.SetExtState(extname, 'attach_title', '', true)
+        reaper.SetExtState(extname, 'attach_child_id', '', true)
+        reaper.SetExtState(extname, 'attach_wait', '', true)
+        ExtSave('attach_settings', nil)
+    else
+        attach_window_title = title
+        attach_window_child_id = child_id
+        reaper.SetExtState(extname, 'attach_title', title, true)
+        reaper.SetExtState(extname, 'attach_child_id', child_id or '', true)
+        reaper.SetExtState(extname, 'attach_wait', '', true)
+    end
+end
+
+function Main()
+    -- Find window
+    if not window_hwnd or not reaper.ValidatePtr(window_hwnd, 'HWND*') then
+        local time = reaper.time_precise()
+        if not prev_time or time > prev_time + 0.5 then
+            prev_time = time
+            local _, top_window_hash = reaper.JS_Window_ListAllTop()
+            if top_window_hash ~= prev_top_window_hash then
+                prev_top_window_hash = top_window_hash
+                window_hwnd = FindAttachedWindow()
+                is_resize = true
+            end
+        end
+    elseif attach_window_title and not attach_window_child_id and not drag_x then
+        -- Check attached window title changes (e.g. when switching toolbar)
+        local curr_title = reaper.JS_Window_GetTitle(window_hwnd)
+        if curr_title ~= attach_window_title then
+            if bitmap then
+                reaper.JS_Composite_Unlink(window_hwnd, bitmap)
+                reaper.JS_Composite_Delay(window_hwnd, 0, 0, 0)
+            end
+            EndIntercepts()
+            InvalidateBoxRect()
+            prev_window_hwnd = window_hwnd
+            window_hwnd = nil
+        end
+    end
+
+    if prev_window_hwnd and reaper.ValidatePtr(prev_window_hwnd, 'HWND*') and
+        reaper.JS_Window_GetTitle(prev_window_hwnd) == attach_window_title then
+        window_hwnd = prev_window_hwnd
+        prev_window_hwnd = nil
+    end
+
+    -- Go idle if window is not found/visible
+    if not window_hwnd or not reaper.JS_Window_IsVisible(window_hwnd) then
+        reaper.defer(Main)
+        return
+    end
+
+    mouse_x, mouse_y = GetMousePosition()
+    local hover_hwnd = reaper.JS_Window_FromPoint(mouse_x, mouse_y)
+
+    do
+        local _, w, h = reaper.JS_Window_GetClientSize(window_hwnd)
+        window_w, window_h = w, h
+    end
+
+    -- Monitor color theme changes
+    local color_theme = reaper.GetLastColorThemeFile()
+    if color_theme ~= prev_color_theme then
+        SetThemeIntegration(1)
+        prev_color_theme = color_theme
+        if not LoadThemeSettings(color_theme) then
+            FindInitialPosition()
+        end
+        EnsureBoxVisible()
+        is_resize = true
+    end
+
+    -- Detect changes to window size
+    if window_w ~= prev_window_w or window_h ~= prev_window_h then
+        local prev_measure_scale, prev_draw_scale = measure_scale, draw_scale
+        measure_scale, draw_scale = GetTransportScale()
+
+        if draw_scale ~= prev_draw_scale then
+            local scale = draw_scale / prev_draw_scale
+            user_font_height = Scale(user_font_height, scale)
+            user_font_yoffs = Scale(user_font_yoffs, scale)
+            user_corner_radius = Scale(user_corner_radius, scale)
+            user_snap_size = Scale(user_snap_size, scale)
+            is_resize = true
+        end
+        if measure_scale ~= prev_measure_scale then
+            min_box_size = Scale(12, measure_scale)
+
+            local scale = measure_scale / prev_measure_scale
+            local new_box_x = Scale(box_x, scale)
+            local new_box_y = Scale(box_y, scale)
+            local new_box_w = Scale(box_w, scale)
+            local new_box_h = Scale(box_h, scale)
+
+            attach_x = Scale(attach_x, scale)
+            attach_center_x = Scale(attach_center_x, scale)
+            if attach_x or attach_center_x then new_box_x = GetAttachPosition() end
+
+            SetBoxCoords(new_box_x, new_box_y, new_box_w, new_box_h)
+            EnsureBoxVisible()
+            is_resize = true
+        end
+        if prev_window_w then
+            -- Move bitmap based on attached position
+            local new_box_x = GetAttachPosition()
+            if new_box_x then SetBoxCoords(new_box_x) end
+            EnsureBoxVisible()
+        end
+        prev_window_w = window_w
+        prev_window_h = window_h
+    end
+
+    -- Detect centered transport toggle
+    local is_centered = reaper.GetToggleCommandState(40533) == 1
+    if is_centered ~= prev_is_centered then
+        prev_is_centered = is_centered
+        local new_box_x = GetAttachPosition()
+        if new_box_x then SetBoxCoords(new_box_x) end
+        EnsureBoxVisible()
+    end
+
+
+    local is_snap_hovered = false
+    local is_hovered = false
+
+    if hover_hwnd == window_hwnd or drag_x then
+        local ScreenToClient = reaper.JS_Window_ScreenToClient
+        local m_x, m_y = ScreenToClient(window_hwnd, mouse_x, mouse_y)
+        -- Handle drag move/resize
+        if drag_x and (drag_x ~= m_x or drag_y ~= m_y) then
+            if resize_flags > 0 then
+                if resize_flags & 1 == 1 then
+                    local box_r = box_x + box_w
+                    local new_box_w = math.max(min_box_size, box_r - m_x)
+                    local new_box_x = box_r - new_box_w
+                    SetBoxCoords(new_box_x, nil, new_box_w, nil)
+                end
+                if resize_flags & 2 == 2 then
+                    local box_b = box_y + box_h
+                    local new_box_h = math.max(min_box_size, box_b - m_y)
+                    local new_box_y = box_b - new_box_h
+                    SetBoxCoords(nil, new_box_y, nil, new_box_h)
+                end
+                if resize_flags & 4 == 4 then
+                    local new_box_w = math.max(min_box_size, m_x - box_x)
+                    SetBoxCoords(nil, nil, new_box_w, nil)
+                end
+                if resize_flags & 8 == 8 then
+                    local new_box_h = math.max(min_box_size, m_y - box_y)
+                    SetBoxCoords(nil, nil, nil, new_box_h)
+                end
+                is_resize = true
+            else
+                prev_box_w = prev_box_w or box_w
+                prev_box_h = prev_box_h or box_h
+                prev_box_x = prev_box_x or box_x
+                prev_box_y = prev_box_y or box_y
+
+                -- Move box to hovered window
+                if hover_hwnd and hover_hwnd ~= window_hwnd then
+                    prev_attach_hwnd = prev_attach_hwnd or window_hwnd
+                    EndIntercepts()
+                    InvalidateBoxRect()
+                    reaper.JS_Composite_Delay(window_hwnd, 0, 0, 0)
+                    -- Redraw previous area
+                    window_hwnd = hover_hwnd
+                    reaper.JS_Window_SetFocus(hover_hwnd)
+
+                    -- Get relative position to bitmap top left corner
+                    local drag_x_diff = drag_x - box_x
+                    local drag_y_diff = drag_y - box_y
+
+                    -- Get new mouse window position
+                    m_x, m_y = ScreenToClient(window_hwnd, mouse_x, mouse_y)
+
+                    -- Set bitmap coordinates with relative position
+                    -- Note: Avoid SetBoxCoords as it doesn't allow going out
+                    -- of bounds
+                    box_x = m_x - drag_x_diff
+                    box_y = m_y - drag_y_diff
+                    drag_x = box_x + drag_x_diff
+                    drag_y = box_y + drag_y_diff
+
+                    StartIntercepts()
+
+                    -- Remeasure window size
+                    local _, w, h = reaper.JS_Window_GetClientSize(window_hwnd)
+                    window_w, window_h = w, h
+
+                    -- Avoid edge attachment
+                    prev_window_w = nil
+                    is_resize = true
+                else
+                    -- Move box inside window
+                    local new_box_x = box_x + m_x - drag_x
+                    local new_box_y = box_y + m_y - drag_y
+                    SetBoxCoords(new_box_x, new_box_y)
+                end
+                if m_x > 0 and m_y > 0 and m_x < window_w and m_y < window_h then
+                    SetCursor(move_cursor)
+                    resize_flags = -1
+                    resize_cursor = nil
+                end
+            end
+            drag_x = m_x
+            drag_y = m_y
+            is_left_click = false
+        end
+
+        local m = Scale(4, measure_scale)
+        is_hovered = m_x > box_x - m and m_y > box_y - m and
+            m_x < box_x + box_w + m and m_y < box_y + box_h + m
+
+        if is_hovered and hover_hwnd == window_hwnd then
+            StartIntercepts()
+            PeekIntercepts(m_x, m_y)
+            if is_edit_mode and not drag_x and not swing_drag_x then
+                local new_resize = 0
+                local cursor = normal_cursor
+
+                local diff_l = math.abs(box_x - m_x)
+                local diff_t = math.abs(box_y - m_y)
+                local diff_r = math.abs(box_x + box_w - m_x)
+                local diff_b = math.abs(box_y + box_h - m_y)
+
+                if diff_l < m then
+                    new_resize = 1
+                    cursor = horz_resize_cursor
+                end
+
+                if diff_t < m then
+                    new_resize = 2
+                    cursor = vert_resize_cursor
+                end
+
+                if diff_r < m then
+                    new_resize = 4
+                    cursor = horz_resize_cursor
+                end
+
+                if diff_b < m then
+                    new_resize = 8
+                    cursor = vert_resize_cursor
+                end
+
+                local d_m = 2 * m
+
+                if diff_l < d_m and diff_t < d_m then
+                    new_resize = 3
+                    cursor = diag2_resize_cursor
+                end
+
+                if diff_t < d_m and diff_r < d_m then
+                    new_resize = 6
+                    cursor = diag1_resize_cursor
+                end
+
+                if diff_r < d_m and diff_b < d_m then
+                    new_resize = 12
+                    cursor = diag2_resize_cursor
+                end
+
+                if diff_b < d_m and diff_l < d_m then
+                    new_resize = 9
+                    cursor = diag1_resize_cursor
+                end
+
+                if resize_flags ~= new_resize then
+                    resize_flags = new_resize
+                    resize_cursor = cursor
+                    is_redraw = true
+                end
+            end
+            if not swing_drag_x and snap_w > 0 and m_x - box_x < snap_w then
+                is_snap_hovered = true
+            end
+            if resize_cursor then
+                SetCursor(resize_cursor)
+            elseif not drag_x then
+                SetCursor(normal_cursor)
+            end
+
+            if is_snap_hovered then
+                if m_x == prev_hover_m_x and m_y == prev_hover_m_y then
+                    hover_cnt = hover_cnt + 1
+                else
+                    hover_cnt = 0
+                end
+                prev_hover_m_x, prev_hover_m_y = m_x, m_y
+
+                if hover_cnt > 11 then
+                    local tooltip = 'Toggle snapping (right click for settings)'
+                    local offs = Scale(17, measure_scale)
+                    reaper.TrackCtl_SetToolTip(tooltip, mouse_x + offs,
+                        mouse_y + offs, true)
+                end
+            end
+        else
+            is_left_click = false
+            is_right_click = false
+            if resize_flags > 0 and not drag_x then
+                resize_flags = 0
+                resize_cursor = nil
+                is_redraw = true
+            end
+            EndIntercepts()
+        end
+
+        -- Release drags / left clicks / right clicks
+        if drag_x and reaper.JS_Mouse_GetState(3) == 0 then
+            -- Check if new attached window is valid
+            if drag_x and prev_attach_hwnd and window_hwnd ~= prev_attach_hwnd then
+                local is_reset = false
+                local target_hwnd = window_hwnd
+                local title = reaper.JS_Window_GetTitle(target_hwnd)
+
+                local child_id = nil
+                -- If window has no title, check if window has ID and parent has title
+                if title == '' then
+                    local parent_hwnd = reaper.JS_Window_GetParent(target_hwnd)
+                    if reaper.ValidatePtr(parent_hwnd, 'HWND*') then
+                        local id = reaper.JS_Window_GetLong(target_hwnd, 'ID')
+                        id = tonumber(id)
+                        if id and id > 0 then
+                            child_id = id
+                            title = reaper.JS_Window_GetTitle(parent_hwnd)
+                            target_hwnd = parent_hwnd
+                        end
+                    end
+                end
+
+                -- Do not allow windows with empty titles
+                if title == '' then
+                    local msg = 'Can not attach %s to this window.\n\n\z
+                        Window does not have a title.'
+                    reaper.MB(msg:format(box_name), 'Notice', 0)
+                    is_reset = true
+                end
+
+                -- Do not allow titles with newline characters
+                if not is_reset and title:match('\n') then
+                    local msg = 'Can not attach %s to this window.\n\n\z
+                        Invalid window title:\n\nTITLE: %s'
+                    reaper.MB(msg:format(box_name, title), 'Notice', 0)
+                end
+
+                if not is_reset then
+                    -- Check if new attached window can be found
+                    local hwnd, window_cnt = FindUniqueWindow(title)
+                    if window_cnt == 0 then
+                        local msg = 'Can not attach %s to this window.\z
+                            \n\nCould not find window by title.\n\nTITLE: %s'
+                        reaper.MB(msg:format(box_name, title), 'Notice', 0)
+                        is_reset = true
+                    elseif window_cnt > 1 then
+                        local msg = 'Can not attach %s to this window. \z
+                            %d windows have the same title!\n\n\z
+                            TITLE: %s\n\nIf this window is a toolbar, make sure \z
+                            that it is only open once (not in toolbar docker) and \z
+                            consider giving it a unique title.'
+                        msg = msg:format(box_name, window_cnt, title)
+                        reaper.MB(msg, 'Notice', 0)
+                        is_reset = true
+                    elseif hwnd ~= target_hwnd then
+                        local msg = 'Can not attach %s to this \z
+                                window.\n\nHandle missmatch'
+                        reaper.MB(msg:format(box_name), 'Notice', 0)
+                        is_reset = true
+                    end
+                end
+
+                if not is_reset then
+                    is_reset = true
+                    -- Save accessible windows by custom ID instead of title
+                    if target_hwnd == main_hwnd then
+                        title = 'REAPER Main Window'
+                    end
+                    if target_hwnd == reaper.MIDIEditor_GetActive() then
+                        title = 'Active MIDI editor'
+                    end
+
+                    -- Prompt user to confirm new attachment
+                    local msg = '%s will be attached to this window:\z
+                            \n\nTITLE: %s%s\n\nProceed?'
+                    local id_text = ''
+                    if child_id then id_text = ('\nID: %d'):format(child_id) end
+                    msg = msg:format(box_name, title, id_text)
+
+                    local ret = reaper.MB(msg, 'Notice', 4)
+                    if ret == 6 then
+                        -- Save info on new attachment for next script startup
+                        SaveAttachedWindow(title, child_id)
+                        local prev_draw_scale = draw_scale
+                        measure_scale, draw_scale = GetTransportScale()
+                        if draw_scale ~= prev_draw_scale then
+                            local scale = draw_scale / prev_draw_scale
+                            user_font_height = Scale(user_font_height, scale)
+                            user_font_yoffs = Scale(user_font_yoffs, scale)
+                            user_corner_radius = Scale(user_corner_radius, scale)
+                            user_snap_size = Scale(user_snap_size, scale)
+                            is_resize = true
+                        end
+                        is_reset = false
+                    end
+                end
+
+                if is_reset then
+                    -- Move box back to previous window (pre-drag)
+                    EndIntercepts()
+                    InvalidateBoxRect()
+                    reaper.JS_Composite_Delay(window_hwnd, 0, 0, 0)
+
+                    window_hwnd = prev_attach_hwnd
+                    reaper.JS_Window_SetFocus(prev_attach_hwnd)
+
+                    box_w = prev_box_w
+                    box_h = prev_box_h
+                    box_x = prev_box_x
+                    box_y = prev_box_y
+
+                    StartIntercepts()
+
+                    -- Remeasure window size
+                    local _, w, h = reaper.JS_Window_GetClientSize(window_hwnd)
+                    window_w, window_h = w, h
+
+                    -- Avoid edge attachment
+                    prev_window_w = nil
+                    is_resize = true
+                end
+            end
+            EnsureBoxVisible()
+            UpdateAttachPosition()
+            SaveThemeSettings(color_theme)
+            drag_x = nil
+            drag_y = nil
+            is_redraw = true
+            prev_attach_hwnd = nil
+            prev_box_w = nil
+            prev_box_h = nil
+            prev_box_x = nil
+            prev_box_y = nil
+        end
+    else
+        EndIntercepts()
+    end
+
+    if swing_drag_x then
+        local m_x = reaper.JS_Window_ScreenToClient(window_hwnd, mouse_x, mouse_y)
+        if reaper.JS_Mouse_GetState(3) == 0 then
+            swing_drag_x = nil
+            is_swing_drag = false
+            is_redraw = true
+        elseif math.abs(m_x - swing_drag_x) > 2 then
+            is_swing_drag = true
+            local swing_x = m_x - (box_x + snap_w)
+            local swing_w = box_w - snap_w
+            local swing_amt = 2 * swing_x / swing_w - 1
+            swing_amt = swing_amt < -1 and -1 or swing_amt
+            swing_amt = swing_amt > 1 and 1 or swing_amt
+            -- Round swing to 2 digits
+            swing_amt = math.floor(swing_amt * 100 + 0.5) / 100
+
+            -- Make sure menu is loaded
+            menu_env = menu_env or LoadMenuScript()
+
+            local _, grid_div, swing = GetSetGrid(0, 0)
+            if swing == 0 then
+                if menu_env then menu_env.SetStraightGrid() end
+                -- Note: Enable for "Adjust items when changing swing"
+                GetSetGrid(0, 1, nil, 1, swing_amt)
+            end
+            GetSetGrid(0, 1, nil, 1, swing_amt)
+            if menu_env then menu_env.SaveProjectGrid(grid_div, 1, swing_amt) end
+        end
+    end
+
+    -- Monitor adaptive grid setting
+    local main_mult = reaper.GetExtState('FTC.AdaptiveGrid', 'main_mult')
+    if main_mult ~= prev_main_mult then
+        prev_main_mult = main_mult
+        is_adaptive = (tonumber(main_mult) or 0) ~= 0
+        is_redraw = true
+    end
+
+    -- Monitor grid division
+    local _, grid_div, swing, swing_amt = GetSetGrid(0, 0)
+    -- Handle undefined grid (-inf)
+    if grid_div ~= grid_div then grid_div = 1 end
+
+    if swing_drag_x or is_hovered and not is_snap_hovered and
+        reaper.JS_Mouse_GetState(16) == 16 then
+        -- Display swing state when hovered and alt is pressed
+        local text = 'Swing: '
+        if swing == 1 then
+            text = text .. math.floor(swing_amt * 100) .. '%'
+        else
+            text = text .. 'off'
+        end
+        if text ~= grid_text then
+            grid_text = text
+            is_adaptive = false
+            prev_grid_div = nil
+            is_redraw = true
+        end
+    elseif reaper.GetToggleCommandState(40904) == 1 then
+        -- Grid is set to Frame
+        if grid_text ~= 'Frame' then
+            grid_text = 'Frame'
+            is_adaptive = false
+            prev_grid_div = nil
+            is_redraw = true
+        end
+    elseif swing == 3 then
+        -- Grid is set to Measure
+        if grid_text ~= 'Measure' then
+            grid_text = 'Measure'
+            is_adaptive = false
+            prev_grid_div = nil
+            is_redraw = true
+        end
+    else
+        local vis_grid_div
+        local hzoom_lvl = use_vis_grid and reaper.GetHZoomLevel() or nil
+        local hzoom_lvl_changed = prev_hzoom_lvl ~= hzoom_lvl
+        if hzoom_lvl_changed and not is_adaptive and math.log(grid_div, 2) % 1 == 0 then
+            prev_hzoom_lvl = hzoom_lvl
+
+            local start_time, end_time = reaper.GetSet_ArrangeView2(0, 0, 0, 0)
+            local _, _, _, start_beat = reaper.TimeMap2_timeToBeats(0, start_time)
+            local _, _, _, end_beat = reaper.TimeMap2_timeToBeats(0, end_time)
+
+            -- Current view width in pixels
+            local arrange_pixels = (end_time - start_time) * hzoom_lvl
+            -- Number of measures that fit into current view
+            local arrange_measures = (end_beat - start_beat) / 4
+
+            local measure_length_in_pixels = arrange_pixels / arrange_measures
+
+            local spacing
+            local ret, projgridmin = reaper.get_config_var_string('projgridmin')
+            if ret then
+                spacing = tonumber(projgridmin) or 8
+            elseif reaper.SNM_GetIntConfigVar then
+                spacing = reaper.SNM_GetIntConfigVar('projgridmin', 8)
+            else
+                spacing = reaper.GetExtState('FTC.AdaptiveGrid', 'projgridmin')
+                spacing = tonumber(spacing) or 8
+            end
+
+            -- The maximum grid (divisions) that would be allowed with spacing
+            local max_grid_div = spacing / measure_length_in_pixels
+
+            vis_grid_div = grid_div
+            -- Calculate smaller visible grid
+            if grid_div < max_grid_div then
+                local exp = math.ceil(math.log(max_grid_div / grid_div, 2))
+                vis_grid_div = grid_div * 2 ^ exp
+            end
+            if vis_grid_div == prev_vis_grid_div then
+                vis_grid_div = nil
+            end
+            prev_vis_grid_div = vis_grid_div
+        end
+
+        if grid_div ~= prev_grid_div or vis_grid_div then
+            prev_grid_div = grid_div
+            -- Grid division changed
+            grid_div = vis_grid_div or grid_div
+
+            is_adaptive = (tonumber(main_mult) or 0) ~= 0
+
+            local num, denom = DecimalToFraction(grid_div)
+
+            local is_triplet, is_dotted = false, false
+            local is_quintuplet, is_septuplet = false, false
+
+            if grid_div > 1 then
+                is_triplet = 2 * grid_div % (2 / 3) == 0
+                is_quintuplet = 4 * grid_div % (4 / 5) == 0
+                is_septuplet = 4 * grid_div % (4 / 7) == 0
+                is_dotted = 2 * grid_div % 3 == 0
+            else
+                is_triplet = 2 / grid_div % 3 == 0
+                is_quintuplet = 4 / grid_div % 5 == 0
+                is_septuplet = 4 / grid_div % 7 == 0
+                is_dotted = 2 / grid_div % (2 / 3) == 0
+            end
+
+            local suffix = ''
+            if is_triplet then
+                suffix = 'T'
+                denom = denom * 2 / 3
+            elseif is_quintuplet then
+                suffix = 'Q'
+                denom = denom * 4 / 5
+            elseif is_septuplet then
+                suffix = 'S'
+                denom = denom * 4 / 7
+            elseif is_dotted then
+                suffix = 'D'
+                denom = denom / 2
+                num = num / 3
+            end
+
+            -- Simplify fractions, e.g. 2/4 to 1/2
+            if num > 1 then
+                local rest = denom % num
+                if rest == 0 then
+                    denom = denom / num
+                    num = 1
+                end
+            end
+
+            if num >= denom and num % denom == 0 then
+                grid_text = ('%.0f%s'):format(num / denom, suffix)
+            else
+                grid_text = ('%.0f/%.0f%s'):format(num, denom, suffix)
+            end
+            is_redraw = true
+        end
+    end
+
+    -- Monitor swing amount
+    if swing ~= 1 then swing_amt = 0 end
+    if swing_amt ~= prev_swing_amt then
+        prev_swing_amt = swing_amt
+        is_redraw = true
+    end
+
+    if is_resize then
+        -- Prepare LICE bitmap for drawing
+        if bitmap then reaper.JS_LICE_DestroyBitmap(bitmap) end
+        if snap_bitmap then reaper.JS_LICE_DestroyBitmap(snap_bitmap) end
+        if bg_bitmap then reaper.JS_LICE_DestroyBitmap(bg_bitmap) end
+
+        local bm_w, bm_h = GetBitmapSize()
+        bitmap = reaper.JS_LICE_CreateBitmap(true, bm_w, bm_h)
+        snap_bitmap = nil
+        bg_bitmap = nil
+
+        local font_family = user_font_family or 'Arial'
+        -- Binary search to find font size that fits target height
+        local default_h = Scale(14, draw_scale)
+        local target_h = math.max(math.min(default_h, bm_h), bm_h // 2.5)
+        if user_font_height then target_h = math.min(user_font_height, bm_h) end
+
+        local lo, hi, mid = 1, target_h * 2, nil
+        font_size = lo
+        while lo <= hi do
+            mid = math.floor((lo + hi) / 2)
+            gfx.setfont(1, font_family, mid)
+            local curr_h = math.max(1, select(2, gfx.measurechar(70)))
+            if curr_h <= target_h then
+                font_size = mid
+                lo = mid + 1
+            else
+                hi = mid - 1
+            end
+        end
+        if font_size ~= mid then gfx.setfont(1, font_family, font_size) end
+
+        -- Create LICE font
+        if lice_font then reaper.JS_LICE_DestroyFont(lice_font) end
+        lice_font = reaper.JS_LICE_CreateFont()
+
+        local GDI_CreateFont = reaper.JS_GDI_CreateFont
+        local font_weight = user_font_weight or 0
+        local gdi = GDI_CreateFont(font_size, font_weight, 0, 0, 0, 0,
+            font_family)
+        reaper.JS_LICE_SetFontFromGDI(lice_font, gdi, '')
+        reaper.JS_GDI_DeleteObject(gdi)
+
+        -- Set bitmap draw coordinates
+        reaper.JS_Composite_Delay(window_hwnd, comp_delay, comp_delay * 1.5, 2)
+        reaper.JS_Composite(window_hwnd, box_x, box_y, box_w, box_h, bitmap,
+            0, 0, bm_w, bm_h)
+        is_resize = false
+        is_redraw = true
+    end
+
+    if snap_w > 0 then
+        local is_snap = reaper.GetToggleCommandState(1157) == 1
+        if is_snap ~= prev_is_snap then
+            prev_is_snap = is_snap
+            is_redraw = true
+        end
+
+        local is_rel_snap = reaper.GetToggleCommandState(41054) == 1
+        if is_rel_snap ~= prev_is_rel_snap then
+            prev_is_rel_snap = is_rel_snap
+            prev_snap_color = nil
+            is_redraw = true
+        end
+
+        if is_snap_hovered ~= prev_is_snap_hovered then
+            prev_is_snap_hovered = is_snap_hovered
+            is_redraw = true
+        end
+    end
+
+    if is_redraw then
+        DrawBitmap(bitmap, GetBitmapSize())
+        InvalidateBoxRect()
+        is_redraw = false
+    end
+
+    reaper.defer(Main)
+end
+
+reaper.SetToggleCommandState(sec, cmd, 1)
+reaper.RefreshToolbar2(sec, cmd)
+
+function Exit()
+    SetThemeIntegration(0)
+    reaper.SetToggleCommandState(sec, cmd, 0)
+    reaper.RefreshToolbar2(sec, cmd)
+
+    if bitmap then reaper.JS_LICE_DestroyBitmap(bitmap) end
+    if snap_bitmap then reaper.JS_LICE_DestroyBitmap(snap_bitmap) end
+    if bg_bitmap then reaper.JS_LICE_DestroyBitmap(bg_bitmap) end
+    if lice_font then reaper.JS_LICE_DestroyFont(lice_font) end
+    if reaper.ValidatePtr(window_hwnd, 'HWND*') then
+        reaper.JS_Composite_Delay(window_hwnd, 0, 0, 0)
+        InvalidateBoxRect()
+        EndIntercepts()
+    end
+end
+
+local has_run = reaper.GetExtState(extname, 'has_run') == 'yes'
+reaper.SetExtState(extname, 'has_run', 'yes', false)
+
+-- Switch to fixed grid on startup if adaptive service is not enabled
+if not has_run then
+    local ext = 'FTC.AdaptiveGrid'
+    local main_mult = tonumber(reaper.GetExtState(ext, 'main_mult')) or 0
+    local midi_mult = tonumber(reaper.GetExtState(ext, 'midi_mult')) or 0
+    if main_mult > 0 or midi_mult > 0 then
+        local is_service_enabled = IsStartupHookEnabled(menu_cmd)
+        if not is_service_enabled then
+            reaper.SetExtState(ext, 'main_mult', 0, true)
+            reaper.SetExtState(ext, 'midi_mult', 0, true)
+        end
+    end
+end
+
+local is_reset = false
+if attach_window_title then
+    -- Give option to move box back to transport when attached window
+    -- is not found upon script startup (or when multiple windows are found)
+    local window_cnt = 0
+    window_hwnd, window_cnt = FindAttachedWindow()
+
+    if window_cnt > 1 then
+        local msg = 'Found %d windows with the same title.\n\n\z
+            Move %s back to transport?'
+        local ret = reaper.MB(msg:format(window_cnt, box_name), box_name, 4)
+        is_reset = ret == 6
+        ExtSave('start_cnt', nil)
+    end
+
+    if not window_hwnd and not WaitForAttachedWindow() then
+        local msg = 'Could not find window.\n\nTITLE: %s\n\nWait for \z
+            window to open?'
+        local ret = reaper.MB(msg:format(attach_window_title), box_name, 4)
+        is_reset = ret ~= 6
+        if is_reset then
+            msg = 'Moved %s back to transport'
+            reaper.MB(msg:format(box_name), box_name, 0)
+        end
+        ExtSave('start_cnt', nil)
+    end
+end
+
+-- Give option to move box back to transport when user quickly toggles
+-- the script 3 times in a row (in 3 seconds)
+local curr_time = reaper.time_precise()
+local start_cnt = ExtLoad('start_cnt', 1)
+local start_time = ExtLoad('start_time', curr_time)
+
+-- Check if more than 3 seconds have passed
+if math.abs(start_time - curr_time) > 3 then
+    start_cnt = 1
+    ExtSave('start_cnt', nil)
+    ExtSave('start_time', nil)
+else
+    start_cnt = start_cnt + 1
+    -- Check if script has started 3 times
+    if start_cnt > 3 then
+        start_cnt = nil
+        curr_time = nil
+        local msg = 'Clear all customizations for this theme?'
+        if attach_window_title then msg = 'Move %s back to transport?' end
+        local ret = reaper.MB(msg:format(box_name), box_name, 4)
+        is_reset = ret == 6
+    end
+    ExtSave('start_cnt', start_cnt)
+    ExtSave('start_time', curr_time)
+end
+
+-- Reset or move box back to transport
+if is_reset then
+    if attach_window_title then
+        SaveAttachedWindow(nil)
+        EndIntercepts()
+        window_hwnd = nil
+        prev_top_window_hash = nil
+    else
+        local settings = ExtLoad('theme_settings', {})
+        local theme_key = GetThemeKey(reaper.GetLastColorThemeFile())
+        settings[theme_key] = nil
+        ExtSave('theme_settings', settings)
+        prev_color_theme = nil
+    end
+end
+
+-- Compatibility: Move individual extstate entries to theme_settings table
+if not reaper.HasExtState(extname, 'theme_settings') then
+    local res_path = reaper.GetResourcePath()
+    local ext_ini_path = ConcatPath(res_path, 'reaper-extstate.ini')
+    local ext_ini_file = io.open(ext_ini_path, 'r')
+    if ext_ini_file then
+        local prev_section
+        local paths = {}
+        for line in ext_ini_file:lines() do
+            local section = line:match('^%[(.-)%]$')
+            prev_section = section or prev_section
+            if prev_section == extname then
+                local _, e = line:lower():find('%.reaperthemez?i?p?=')
+                if e then paths[#paths + 1] = line:sub(1, e - 1) end
+                if line:match('^default=t:') then paths[#paths + 1] = 'default' end
+            end
+        end
+        ext_ini_file:close()
+
+        local theme_settings = {}
+        for _, path in ipairs(paths) do
+            local settings = ExtLoad(path)
+            ExtSave(path, nil)
+
+            if settings then
+                -- Compatibility: Font size
+                if settings.font_size then
+                    local font_family = settings.font_family or 'Arial'
+                    gfx.setfont(1, font_family, settings.font_size)
+                    local height = select(2, gfx.measurechar(70))
+                    settings.font_height = math.floor(math.max(1, height))
+                    settings.font_size = nil
+                end
+
+                -- Compatibility: Coordinates
+                if settings.bm_x then
+                    settings.box_x = settings.bm_x
+                    settings.box_y = settings.bm_y
+                    settings.box_w = settings.bm_w
+                    settings.box_h = settings.bm_h
+
+                    settings.bm_x = nil
+                    settings.bm_y = nil
+                    settings.bm_w = nil
+                    settings.bm_h = nil
+                end
+                -- Compatibility: Scale
+                if settings.scale then
+                    settings.measure_scale = settings.scale
+                    settings.scale = nil
+                end
+            end
+
+            if path == 'default' then
+                local key = GetThemeKey('')
+                theme_settings[key] = theme_settings[key] or settings
+            else
+                -- Replace windows path separator with unix
+                local key = path:gsub('\\', '/')
+                -- Remove file extension
+                key = key:gsub('%.([^./]+)$', '')
+                theme_settings[key] = settings
+            end
+        end
+        ExtSave('theme_settings', theme_settings)
+    end
+end
+
+reaper.atexit(Exit)
+reaper.defer(Main)
