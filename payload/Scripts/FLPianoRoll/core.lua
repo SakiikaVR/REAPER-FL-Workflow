@@ -28,6 +28,17 @@ function M.enableLengthMemory()
  if state~=1 then reaper.MIDIEditor_OnCommand(editor,LENGTH_MEMORY_COMMAND) end
  return reaper.GetToggleCommandStateEx(32060,LENGTH_MEMORY_COMMAND)==1
 end
+function M.enableLengthMemoryWhenReady()
+ local function attempt()
+  if reaper.GetExtState(M.namespace,'enabled')~='1' then return end
+  if reaper.MIDIEditor_GetActive() then
+   M.enableLengthMemory()
+  else
+   reaper.defer(attempt)
+  end
+ end
+ attempt()
+end
 function M.restoreLengthMemory()
  local editor=reaper.MIDIEditor_GetActive()
  if not editor or reaper.GetExtState(M.namespace,'length_memory_saved')~='1' then return end

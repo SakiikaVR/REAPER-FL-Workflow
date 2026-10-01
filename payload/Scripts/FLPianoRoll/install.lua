@@ -24,6 +24,7 @@ for _,name in ipairs(scripts) do
  end
 end
 M.enable()
+if not reaper.MIDIEditor_GetActive() then M.enableLengthMemoryWhenReady() end
 M.paint(); assert(reaper.GetMouseModifier('MM_CTX_MIDI_PIANOROLL',0)=='22 m')
 M.paint(); assert(reaper.GetMouseModifier('MM_CTX_MIDI_PIANOROLL',0)=='1 m')
 out:write('PASS: paint toggle\n')

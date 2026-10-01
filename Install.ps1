@@ -64,7 +64,7 @@ $managed = @(
   'UserPlugins\reaper_js_ReaScriptAPI64.dll','Data\custom-startup-logo.png',
   'ReaperFLWorkflow-Uninstall.cmd','ReaperFLWorkflow-Uninstall.ps1'
 )
-$state = [ordered]@{ version='1.1.1'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
+$state = [ordered]@{ version='1.1.2'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
 foreach ($relative in $managed) {
   $source = Join-Path $ResourcePath $relative
   $exists = Test-Path -LiteralPath $source
@@ -116,6 +116,10 @@ do
   local file = resource .. '/Scripts/FTC/Adaptive grid/Gridbox.lua'
   local id = reaper.AddRemoveReaScript(true, 0, file, true)
   if id ~= 0 and reaper.APIExists('JS_Composite_Delay') then reaper.Main_OnCommand(id, 0) end
+  if reaper.GetExtState('FLPianoRoll_v1', 'enabled') == '1' then
+    local piano = dofile(resource .. '/Scripts/FLPianoRoll/core.lua')
+    piano.enableLengthMemoryWhenReady()
+  end
 end
 -- END REAPER FL Workflow
 '@
