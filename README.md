@@ -15,7 +15,7 @@
 
 REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモード、起動ロゴを一度に設定します。REAPER標準のフォントとテーマは変更しません。
 
-現在の仕様は **v1.1.0** です。
+現在の仕様は **v1.1.1** です。
 
 ## 特長
 
@@ -37,11 +37,14 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 動作対象は **Windows 10 / 11、REAPER 7.80 x64** です。
 
 1. 作業中のプロジェクトを保存し、REAPERを終了します。
-2. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-v1.1.0.exe` をダウンロードします。
-3. ダウンロードした `.exe` をダブルクリックします。
-4. REAPERが起動したら完了です。
+2. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-v1.1.1.zip` をダウンロードします。
+3. ZIPを右クリックして「すべて展開」します。
+4. 展開したフォルダーの `Install.cmd` をダブルクリックします。
+5. REAPERが起動したら完了です。
 
-v1.0.0をインストール済みの場合は、先にその配布物の `Uninstall.cmd` で元の設定に戻してからv1.1.0を導入してください。以前のフォント拡張とテーマも復元されます。
+v1.0.0をインストール済みの場合は、先にその配布物の `Uninstall.cmd` で元の設定に戻してからv1.1.1を導入してください。以前のフォント拡張とテーマも復元されます。v1.1.0をインストール済みの場合も、先にアンインストールしてください。
+
+この版は自己展開EXEを配布しません。ただし、Smart App Controlは展開後のスクリプトや同梱DLLも検査するため、警告が出ないことは保証できません。確実な対策には、配布する実行コードへの信頼された証明書による署名が必要です。
 
 管理者権限は不要です。ファイルは `%APPDATA%\REAPER` だけへ保存します。
 
@@ -113,7 +116,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 `
   -ResourcePath .\.test-resource -SkipLaunch
 ```
 
-単一実行ファイルを作成する場合は、Windows標準のIExpressを使用します。
+配布ZIPを作成する場合は次を実行します。
 
 ```powershell
 .\Build-Release.ps1
@@ -122,8 +125,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 `
 ## ファイル構成
 
 ```text
-├─ Build-Release.ps1               # 単一EXEの作成
-├─ RunInstaller.ps1                # EXE内の起動処理
+├─ Build-Release.ps1               # 配布ZIPの作成
 ├─ Install.cmd / Install.ps1       # 展開版インストーラー
 ├─ Uninstall.cmd / Uninstall.ps1   # バックアップから復元
 ├─ payload/

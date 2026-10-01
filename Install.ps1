@@ -64,7 +64,7 @@ $managed = @(
   'UserPlugins\reaper_js_ReaScriptAPI64.dll','Data\custom-startup-logo.png',
   'ReaperFLWorkflow-Uninstall.cmd','ReaperFLWorkflow-Uninstall.ps1'
 )
-$state = [ordered]@{ version='1.1.0'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
+$state = [ordered]@{ version='1.1.1'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
 foreach ($relative in $managed) {
   $source = Join-Path $ResourcePath $relative
   $exists = Test-Path -LiteralPath $source
