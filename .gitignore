@@ -6,4 +6,5 @@ dist/
 *.lib
 *.exp
 *.exe
+*.sed
 source/LINEFont/reaper_plugin.h

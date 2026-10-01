@@ -13,9 +13,9 @@
   </a>
 </p>
 
-REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモード、Yu Gothic UI、起動ロゴを一度に設定します。
+REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモード、起動ロゴを一度に設定します。REAPER標準のフォントとテーマは変更しません。
 
-現在の仕様は **v1.0.0** です。
+現在の仕様は **v1.1.0** です。
 
 ## 特長
 
@@ -28,7 +28,7 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 - 空きトラック欄の「＋」からソフトシンセトラックを直接追加
 - Gridboxを右上へ配置し、REAPER起動時に自動実行
 - ReaperDarkModeでWindows標準ダイアログを暗色化
-- REAPER標準テーマをローカルで複製し、フォントだけYu Gothic UIへ変更
+- REAPER標準のフォントとテーマを変更しない
 - オリジナル起動ロゴを適用
 - インストール前の設定を自動バックアップし、ダブルクリックで復元
 
@@ -36,11 +36,12 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 
 動作対象は **Windows 10 / 11、REAPER 7.80 x64** です。
 
-1. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-v1.0.0.zip` をダウンロードします。
-2. ZIPを右クリックし、**すべて展開**します。
-3. 作業中のプロジェクトを保存し、REAPERを終了します。
-4. 展開したフォルダーの `Install.cmd` をダブルクリックします。
-5. REAPERが起動したら完了です。ネイティブダイアログのフォントとダークモードも反映されます。
+1. 作業中のプロジェクトを保存し、REAPERを終了します。
+2. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-v1.1.0.exe` をダウンロードします。
+3. ダウンロードした `.exe` をダブルクリックします。
+4. REAPERが起動したら完了です。
+
+v1.0.0をインストール済みの場合は、先にその配布物の `Uninstall.cmd` で元の設定に戻してからv1.1.0を導入してください。以前のフォント拡張とテーマも復元されます。
 
 管理者権限は不要です。ファイルは `%APPDATA%\REAPER` だけへ保存します。
 
@@ -75,7 +76,7 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 ## 元に戻す
 
 1. 作業中のプロジェクトを保存し、REAPERを終了します。
-2. インストーラーと同じフォルダーの `Uninstall.cmd` をダブルクリックします。
+2. `%APPDATA%\REAPER\ReaperFLWorkflow-Uninstall.cmd` をダブルクリックします。
 
 `%APPDATA%\REAPER\ReaperFLWorkflow-Backups` に保存したインストール直前の状態へ復元します。
 
@@ -97,12 +98,11 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 | `reaper-mouse.ini` / ExtState | FL風ピアノロール操作と元設定の記録 |
 | `reaper-kb.ini` | 通常画面・MIDIエディターのホイール操作 |
 | `reaper-menu.ini` | Empty TCP area toolbarの「＋」 |
-| `REAPER.ini` | 起動ロゴと使用テーマ |
+| `REAPER.ini` | 起動ロゴ |
 | `Scripts/FLPianoRoll` | 自作ReaScript |
 | `Scripts/FTC/Adaptive grid` | Gridbox |
 | `Scripts/__startup.lua` | Gridboxの自動起動 |
-| `UserPlugins` | DarkMode、js_ReaScriptAPI、Yu Gothic UI拡張 |
-| `ColorThemes` | ローカル生成したYu Gothic UIテーマ |
+| `UserPlugins` | DarkMode、js_ReaScriptAPI |
 
 ## 開発と確認
 
@@ -113,23 +113,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 `
   -ResourcePath .\.test-resource -SkipLaunch
 ```
 
-Yu Gothic UI拡張を再ビルドする場合はVisual Studio C++ Build Toolsを用意します。REAPER SDKヘッダーは公式サイトから自動取得されます。
+単一実行ファイルを作成する場合は、Windows標準のIExpressを使用します。
 
 ```powershell
-cd source\LINEFont
-.\build.cmd
+.\Build-Release.ps1
 ```
 
 ## ファイル構成
 
 ```text
-├─ Install.cmd / Install.ps1       # ダブルクリック式インストーラー
+├─ Build-Release.ps1               # 単一EXEの作成
+├─ RunInstaller.ps1                # EXE内の起動処理
+├─ Install.cmd / Install.ps1       # 展開版インストーラー
 ├─ Uninstall.cmd / Uninstall.ps1   # バックアップから復元
 ├─ payload/
 │  ├─ Data/                        # 起動ロゴ
 │  ├─ Scripts/                     # FLピアノロールとGridbox
 │  └─ UserPlugins/                 # x64拡張DLL
-├─ source/LINEFont/                # Yu Gothic UI拡張のC++ソース
 ├─ third_party/                    # 外部ライセンス
 ├─ THIRD_PARTY_NOTICES.md
 └─ LICENSE
