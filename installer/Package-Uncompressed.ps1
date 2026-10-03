@@ -1,6 +1,6 @@
 param(
   [string]$SourceDirectory = (Join-Path $PSScriptRoot '..\dist\eiedit\uncompressed'),
-  [string]$OutputFile = (Join-Path $PSScriptRoot '..\dist\eiedit\REAPER-FL-Workflow-Direct-v1.1.4.zip')
+  [string]$OutputFile = (Join-Path $PSScriptRoot '..\dist\eiedit\REAPER-FL-Workflow-Direct-v1.1.5.zip')
 )
 $ErrorActionPreference = 'Stop'
 $source = [IO.Path]::GetFullPath($SourceDirectory)

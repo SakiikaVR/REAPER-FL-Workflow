@@ -11,7 +11,7 @@
 
 REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモードを一度に設定します。フォントと起動ロゴはREAPER標準のままにします。
 
-配布形式は **インストーラー一式を収めた ZIP** です。現在の仕様は **v1.1.4** です。
+配布形式は **インストーラー一式を収めた ZIP** です。現在の配布版は **v1.1.5** です。
 
 ## 特長
 
@@ -33,7 +33,7 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 
 1. 作業中のプロジェクトを保存し、REAPERを終了します。
 2. 既存の REAPER 設定を残したい場合は、`%APPDATA%\REAPER` を別の場所にコピーしておきます。インストーラーは `reaper-kb.ini`、`reaper-menu.ini`、`reaper-mouse.ini`、`reaper-extstate.ini`、`Scripts\__startup.lua` を上書きします。`REAPER.ini` は eiedit の INI 設定機能でドッキングの 7 項目だけを更新し、音声デバイス・言語設定を残します。
-3. [`REAPER-FL-Workflow-Direct-v1.1.4.zip`](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/download/v1.1.4/REAPER-FL-Workflow-Direct-v1.1.4.zip) をダウンロードして展開し、展開したフォルダーの `INSTALL.EXE` をダブルクリックします。`INSTALL.DAT` と `Files` フォルダーも同じ場所に置いたまま実行してください。
+3. [`REAPER-FL-Workflow-Direct-v1.1.5.zip`](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/download/v1.1.5/REAPER-FL-Workflow-Direct-v1.1.5.zip) をダウンロードして展開し、展開したフォルダーの `INSTALL.EXE` をダブルクリックします。`INSTALL.DAT` と `Files` フォルダーも同じ場所に置いたまま実行してください。
 4. 画面に従ってインストールします。インストーラーはファイルを REAPER の設定フォルダーへ直接コピーして終了します。
 5. REAPERを起動して動作を確認します。初回起動時に ReaScript が REAPER のアクションへ登録されます。
 
