@@ -7,12 +7,15 @@ InstallerModuleLanguage=1041
 MajorVersion=4
 MinorVersion=61
 CreateDateTime=2026/10/03 8:55:55
-UpdateDateTime=2026/10/03 10:10:33
+UpdateDateTime=2026/10/03 11:21:00
 Generator=EINSTALL 2.0
 ProjectType=0
-CreateFileType=2
+CreateFileType=1
 CreateFileCompLevel=1
 CreateFileNameOption=0
+InstallSource=Files
+CreateFolderBeforeBackup=1
+InstallerModuleKey=
 
 [SupportInfo]
 Publisher=SakiikaVR
@@ -34,21 +37,19 @@ ExcludeCommonComponent=0
 6=
 7=Å~
 
-[Files]
-
 [Software]
 SoftName=REAPER FL Workflow Direct v1.1.4
-InstallerTitle=REAPER FL Workflow Setup
+InstallerTitle=REAPER-FL-Workflow
 MainFileName=
 Copyright=REAPER FL Workflow contributors
 FolderTargetChange=0
 Folder=%AppDataDir%|REAPER
 SearchFileDir=%ProgramFilesDir%|
 InstallFolderOption=3
-LogoPosition=0|0|154||||||||||||||||||
+LogoPosition=2|0|154||||||||||||||||||
 LogoSize=0|48|71||||||||||||||||||
 LogoFileName=
-LogoEnabled=0
+LogoEnabled=1
 LogoNoResize=0
 LogoNoCenter=0
 LogoNoHeaderMes=1
@@ -118,4 +119,11 @@ MemoryCheck=0
 4=0|%InstallDir%||REAPER.ini|reaper|transport_dock_pos|771|4095|0,0,0,0,0,0,0,0,0,,,,,,,,,,,,|0,0,HKEY_CURRENT_USER,,,,0,,,0,,,,,,,,,,,|||||||||||
 5=0|%InstallDir%||REAPER.ini|reaper|dockermode0|0|4095|0,0,0,0,0,0,0,0,0,,,,,,,,,,,,|0,0,HKEY_CURRENT_USER,,,,0,,,0,,,,,,,,,,,|||||||||||
 6=0|%InstallDir%||REAPER.ini|reaper|dockheight|41|4095|0,0,0,0,0,0,0,0,0,,,,,,,,,,,,|0,0,HKEY_CURRENT_USER,,,,0,,,0,,,,,,,,,,,|||||||||||
+
+[ProgramSetting]
+CheckBoxCaption=ç°Ç∑ÇÆé¿çsÇ∑ÇÈ(&R)
+DefaultCheckBoxState=0
+EnableGroupCheckBox=1
+
+[Files]
 

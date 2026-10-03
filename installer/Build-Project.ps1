@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $buildDir = Join-Path $root 'dist\eiedit'
 $stage = Join-Path $buildDir 'direct-stage'
+$outputDir = Join-Path $buildDir 'uncompressed'
 $baseProject = Join-Path $PSScriptRoot 'template.pj2'
 $outputProject = Join-Path $buildDir 'REAPER-FL-Workflow-Direct-v1.1.4.pj2'
 $utf8 = New-Object Text.UTF8Encoding($false)
@@ -11,6 +12,8 @@ if (-not $stageFull.StartsWith($eieditFull,[StringComparison]::OrdinalIgnoreCase
 if (Test-Path -LiteralPath $stageFull) { Remove-Item -LiteralPath $stageFull -Recurse -Force }
 New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
+New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'logo.ico') -Destination (Join-Path $buildDir 'logo.ico') -Force
 
 function Put-File([string]$Source, [string]$Relative) {
   $target = Join-Path $stage $Relative
@@ -104,7 +107,8 @@ end
 
 $encoding = [Text.Encoding]::GetEncoding(932)
 $project = [IO.File]::ReadAllText($baseProject, $encoding)
-$project = $project.Replace('CreateFolder=',"CreateFolder=$buildDir")
+$project = $project.Replace('CreateFolder=',"CreateFolder=$outputDir")
+$project = $project.Replace('LogoFileName=',"LogoFileName=$(Join-Path $buildDir 'logo.ico')")
 $files = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName)
 $items = New-Object System.Collections.Generic.List[string]
 for ($i = 0; $i -lt $files.Count; $i++) {
@@ -115,7 +119,7 @@ for ($i = 0; $i -lt $files.Count; $i++) {
   $items.Add("$i=1|0|%InstallDir%|$subdir|$($file.FullName)|||0|0|65535||0,0,HKEY_CURRENT_USER,,,,0,,,0,,,,,,,,,,,|||||||||")
 }
 $section = "[Files]`r`n" + ($items -join "`r`n") + "`r`n`r`n"
-$project = [regex]::Replace($project, '(?ms)^\[Files\]\r?\n.*?(?=^\[Software\])', [Text.RegularExpressions.MatchEvaluator]{ param($m) $section })
+$project = [regex]::Replace($project, '(?ms)^\[Files\]\r?\n.*?(?=^\[|\z)', [Text.RegularExpressions.MatchEvaluator]{ param($m) $section })
 $layout = [ordered]@{
   mixwnd_vis='1'; mixwnd_dock='0'
   transport_vis='1'; transport_dock='1'; transport_dock_pos='771'
@@ -132,4 +136,5 @@ $iniSection = "[IniFileItems]`r`n" + ($iniItems -join "`r`n") + "`r`n`r`n"
 $project = [regex]::Replace($project, '(?ms)^\[IniFileItems\]\r?\n.*?(?=^\[|\z)', [Text.RegularExpressions.MatchEvaluator]{ param($m) $iniSection })
 [IO.File]::WriteAllText($outputProject, $project, $encoding)
 "Project: $outputProject"
+"Output folder: $outputDir"
 "Files: $($files.Count)"
