@@ -49,41 +49,60 @@ if ($ResourcePath -eq $realResource -and (Get-Process reaper -ErrorAction Silent
 }
 if (-not (Test-Path -LiteralPath $ResourcePath)) { throw "REAPER resource path not found: $ResourcePath" }
 $statePath = Join-Path $ResourcePath 'ReaperFLWorkflow-install-state.json'
-if (Test-Path -LiteralPath $statePath) { throw '既にインストールされています。先にReaperFLWorkflow-Uninstall.cmdまたは旧版のUninstall.cmdを実行してください。' }
+$previousState = $null
+if (Test-Path -LiteralPath $statePath) {
+  $previousState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+  if ($previousState.version -ne '1.1.2') {
+    throw 'このバージョンからの上書き更新には対応していません。先にReaperFLWorkflow-Uninstall.cmdまたは旧版のUninstall.cmdを実行してください。'
+  }
+}
 if (-not $SkipLaunch) {
-  $reaperExe = Join-Path ${env:ProgramFiles} 'REAPER (x64)\reaper.exe'
+  $programFiles64 = if ($env:ProgramW6432) { $env:ProgramW6432 } else { ${env:ProgramFiles} }
+  $reaperExe = Join-Path $programFiles64 'REAPER (x64)\reaper.exe'
   if (-not (Test-Path -LiteralPath $reaperExe)) { throw 'reaper.exe was not found.' }
 }
 
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$backupRoot = Join-Path $ResourcePath ('ReaperFLWorkflow-Backups\' + $stamp)
 $managed = @(
-  'reaper-kb.ini','reaper-menu.ini','reaper-mouse.ini','reaper-extstate.ini','REAPER.ini',
+  'reaper-kb.ini','reaper-menu.ini','reaper-mouse.ini','reaper-extstate.ini',
   'Scripts\__startup.lua','Scripts\FLPianoRoll','Scripts\FTC\Adaptive grid',
   'UserPlugins\reaper_DarkMode_x64.dll','UserPlugins\reaper_darkmode.ini',
-  'UserPlugins\reaper_js_ReaScriptAPI64.dll','Data\custom-startup-logo.png',
+  'UserPlugins\reaper_js_ReaScriptAPI64.dll',
   'ReaperFLWorkflow-Uninstall.cmd','ReaperFLWorkflow-Uninstall.ps1'
 )
-$state = [ordered]@{ version='1.1.2'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
-foreach ($relative in $managed) {
-  $source = Join-Path $ResourcePath $relative
-  $exists = Test-Path -LiteralPath $source
-  $state.files += [ordered]@{ path=$relative; existed=$exists }
-  if ($exists) {
-    $destination = Join-Path $backupRoot $relative
-    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-    Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+if ($previousState) {
+  $recorded = @($previousState.files | ForEach-Object { $_.path })
+  foreach ($relative in $managed) {
+    if ($recorded -notcontains $relative) { throw "上書き更新に必要なバックアップ情報がありません: $relative" }
+  }
+  $backupRoot = $previousState.backup
+  $state = [ordered]@{
+    version='1.1.3'; installed=$previousState.installed; updated=(Get-Date).ToString('o')
+    backup=$backupRoot; files=@($previousState.files)
+  }
+} else {
+  $backupRoot = Join-Path $ResourcePath ('ReaperFLWorkflow-Backups\' + $stamp)
+  $state = [ordered]@{ version='1.1.3'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
+  foreach ($relative in $managed) {
+    $source = Join-Path $ResourcePath $relative
+    $exists = Test-Path -LiteralPath $source
+    $state.files += [ordered]@{ path=$relative; existed=$exists }
+    if ($exists) {
+      $destination = Join-Path $backupRoot $relative
+      New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+      Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+    }
   }
 }
 
+New-Item -ItemType Directory -Path (Join-Path $ResourcePath 'Scripts') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $payload 'Scripts\FLPianoRoll') -Destination (Join-Path $ResourcePath 'Scripts') -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $ResourcePath 'Scripts\FTC') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $payload 'Scripts\FTC\Adaptive grid') -Destination (Join-Path $ResourcePath 'Scripts\FTC') -Recurse -Force
-New-Item -ItemType Directory -Path (Join-Path $ResourcePath 'UserPlugins'),(Join-Path $ResourcePath 'Data') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $ResourcePath 'UserPlugins') -Force | Out-Null
 foreach ($file in @('reaper_DarkMode_x64.dll','reaper_darkmode.ini','reaper_js_ReaScriptAPI64.dll')) {
   Copy-Item -LiteralPath (Join-Path $payload ('UserPlugins\' + $file)) -Destination (Join-Path $ResourcePath ('UserPlugins\' + $file)) -Force
 }
-Copy-Item -LiteralPath (Join-Path $payload 'Data\custom-startup-logo.png') -Destination (Join-Path $ResourcePath 'Data\custom-startup-logo.png') -Force
 Copy-Item -LiteralPath (Join-Path $packageRoot 'Uninstall.cmd') -Destination (Join-Path $ResourcePath 'ReaperFLWorkflow-Uninstall.cmd') -Force
 Copy-Item -LiteralPath (Join-Path $packageRoot 'Uninstall.ps1') -Destination (Join-Path $ResourcePath 'ReaperFLWorkflow-Uninstall.ps1') -Force
 
@@ -101,7 +120,6 @@ Set-IniSection (Join-Path $ResourcePath 'reaper-menu.ini') 'Empty TCP area toolb
 default=8e09af4c19a5dab2
 item_0=40701 Insert virtual instrument on new track...
 '@
-Set-IniValue (Join-Path $ResourcePath 'REAPER.ini') 'REAPER' 'splashimage' (Join-Path $ResourcePath 'Data\custom-startup-logo.png')
 Set-IniValue (Join-Path $ResourcePath 'reaper-extstate.ini') 'FTC.GridBox' 'theme_settings' 't:{ColorThemes/Default_7.0:t:{box_x:n:600,box_y:n:4,box_w:n:80,box_h:n:32,attach_x:n:-270,attach_mode:n:2}}'
 Set-IniValue (Join-Path $ResourcePath 'reaper-extstate.ini') 'FTC.GridBox' 'is_edit_mode' 'b:0'
 
@@ -116,7 +134,9 @@ do
   local file = resource .. '/Scripts/FTC/Adaptive grid/Gridbox.lua'
   local id = reaper.AddRemoveReaScript(true, 0, file, true)
   if id ~= 0 and reaper.APIExists('JS_Composite_Delay') then reaper.Main_OnCommand(id, 0) end
-  if reaper.GetExtState('FLPianoRoll_v1', 'enabled') == '1' then
+  if reaper.GetExtState('FLPianoRoll_v1', 'enabled') ~= '1' then
+    dofile(resource .. '/Scripts/FLPianoRoll/install.lua')
+  else
     local piano = dofile(resource .. '/Scripts/FLPianoRoll/core.lua')
     piano.enableLengthMemoryWhenReady()
   end
@@ -127,12 +147,7 @@ Write-Utf8 $startupPath $startup
 
 Write-Utf8 $statePath ($state | ConvertTo-Json -Depth 6)
 
-if (-not $SkipLaunch) {
-  $installerScript = Join-Path $ResourcePath 'Scripts\FLPianoRoll\install.lua'
-  Start-Process -FilePath $reaperExe -ArgumentList '-noactivate', ('"' + $installerScript + '"')
-}
-
 Write-Host ''
 Write-Host 'REAPER FL Workflow をインストールしました。' -ForegroundColor Green
 Write-Host ('バックアップ: ' + $backupRoot)
-Write-Host 'REAPER起動後、FL風ピアノロールとGridboxが有効になります。'
+Write-Host '次にREAPERを起動すると、FL風ピアノロールとGridboxが有効になります。'

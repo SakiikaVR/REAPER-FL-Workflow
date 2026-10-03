@@ -1,10 +1,6 @@
 # REAPER FL Workflow
 
 <p align="center">
-  <img src="payload/Data/custom-startup-logo.png" alt="REAPER FL Workflow" width="128">
-</p>
-
-<p align="center">
   <a href="https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest">
     <img src="https://img.shields.io/github/v/release/SakiikaVR/REAPER-FL-Workflow?style=for-the-badge&label=%E2%AC%87%20Installer&color=ff9f0a" alt="最新版をダウンロード">
   </a>
@@ -13,9 +9,9 @@
   </a>
 </p>
 
-REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモード、起動ロゴを一度に設定します。REAPER標準のフォントとテーマは変更しません。
+REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモードを一度に設定します。REAPER標準のフォント、テーマ、起動ロゴは変更しません。
 
-現在の仕様は **v1.1.2** です。
+現在の仕様は **v1.1.3** です。
 
 ## 特長
 
@@ -29,24 +25,20 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 - Gridboxを右上へ配置し、REAPER起動時に自動実行
 - ReaperDarkModeでWindows標準ダイアログを暗色化
 - REAPER標準のフォントとテーマを変更しない
-- オリジナル起動ロゴを適用
-- インストール前の設定を自動バックアップし、ダブルクリックで復元
 
 ## インストール
 
 動作対象は **Windows 10 / 11、REAPER 7.80 x64** です。
 
 1. 作業中のプロジェクトを保存し、REAPERを終了します。
-2. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-v1.1.2.zip` をダウンロードします。
-3. ZIPを右クリックして「すべて展開」します。
-4. 展開したフォルダーの `Install.cmd` をダブルクリックします。
-5. REAPERが起動したら完了です。
+2. 既存の REAPER 設定を残したい場合は、`%APPDATA%\REAPER` を別の場所にコピーしておきます。EXE 版は `reaper-kb.ini`、`reaper-menu.ini`、`reaper-mouse.ini`、`reaper-extstate.ini`、`Scripts\__startup.lua` を上書きします。
+3. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-Direct-v1.1.3.EXE` をダウンロードし、ダブルクリックします。
+4. 画面に従ってインストールします。インストーラーはファイルを REAPER の設定フォルダーへ直接コピーして終了します。
+5. REAPERを起動して動作を確認します。初回起動時に ReaScript が REAPER のアクションへ登録されます。
 
-v1.0.0をインストール済みの場合は、先にその配布物の `Uninstall.cmd` で元の設定に戻してからv1.1.2を導入してください。以前のフォント拡張とテーマも復元されます。v1.1.0以降をインストール済みの場合も、先にアンインストールしてください。
+ZIP版を使う場合は、`REAPER-FL-Workflow-v1.1.3.zip` を「すべて展開」し、`Install.cmd` をダブルクリックします。Smart App ControlはEXE内部のスクリプトやDLLも検査するため、警告が出ないことは保証できません。確実な対策には、配布する実行コードへの信頼された証明書による署名が必要です。
 
-この版は自己展開EXEを配布しません。ただし、Smart App Controlは展開後のスクリプトや同梱DLLも検査するため、警告が出ないことは保証できません。確実な対策には、配布する実行コードへの信頼された証明書による署名が必要です。
-
-管理者権限は不要です。ファイルは `%APPDATA%\REAPER` だけへ保存します。
+REAPERの設定は `%APPDATA%\REAPER` に保存します。EXE版は別の展開フォルダーを作りません。
 
 ## 操作
 
@@ -80,10 +72,7 @@ v1.0.0をインストール済みの場合は、先にその配布物の `Uninst
 
 ## 元に戻す
 
-1. 作業中のプロジェクトを保存し、REAPERを終了します。
-2. `%APPDATA%\REAPER\ReaperFLWorkflow-Uninstall.cmd` をダブルクリックします。
-
-`%APPDATA%\REAPER\ReaperFLWorkflow-Backups` に保存したインストール直前の状態へ復元します。
+REAPERを終了し、インストール前に保存した `%APPDATA%\REAPER` のコピーから設定を戻してください。ZIP版の `Install.cmd` で導入した場合は、そのとき作成された `%APPDATA%\REAPER\ReaperFLWorkflow-Uninstall.cmd` を使えます。
 
 ## REAPERを日本語化する
 
@@ -100,10 +89,9 @@ v1.0.0をインストール済みの場合は、先にその配布物の `Uninst
 
 | 対象 | 内容 |
 |---|---|
-| `reaper-mouse.ini` / ExtState | FL風ピアノロール操作と元設定の記録 |
+| `reaper-mouse.ini` / ExtState | FL風ピアノロール操作 |
 | `reaper-kb.ini` | 通常画面・MIDIエディターのホイール操作 |
 | `reaper-menu.ini` | Empty TCP area toolbarの「＋」 |
-| `REAPER.ini` | 起動ロゴ |
 | `Scripts/FLPianoRoll` | 自作ReaScript |
 | `Scripts/FTC/Adaptive grid` | Gridbox |
 | `Scripts/__startup.lua` | Gridboxの自動起動 |
@@ -131,7 +119,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 `
 ├─ Install.cmd / Install.ps1       # 展開版インストーラー
 ├─ Uninstall.cmd / Uninstall.ps1   # バックアップから復元
 ├─ payload/
-│  ├─ Data/                        # 起動ロゴ
 │  ├─ Scripts/                     # FLピアノロールとGridbox
 │  └─ UserPlugins/                 # x64拡張DLL
 ├─ third_party/                    # 外部ライセンス

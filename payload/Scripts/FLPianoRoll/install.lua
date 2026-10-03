@@ -1,5 +1,4 @@
-local _,file=reaper.get_action_context()
-local dir=file:match('^(.*[/\\])')
+local dir=reaper.GetResourcePath()..'/Scripts/FLPianoRoll/'
 local M=dofile(dir..'core.lua')
 local out=assert(io.open(dir..'installation-report.txt','w'))
 -- Check the right-drag label against this installed version, restoring immediately.

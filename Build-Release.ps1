@@ -1,4 +1,4 @@
-param([string]$Version = '1.1.2')
+param([string]$Version = '1.1.3')
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $dist = Join-Path $root 'dist'
@@ -12,7 +12,7 @@ New-Item -ItemType Directory -Path $dist,$stage -Force | Out-Null
 foreach ($file in @('Install.cmd','Install.ps1','Uninstall.cmd','Uninstall.ps1','README.md','LICENSE','THIRD_PARTY_NOTICES.md')) {
   Copy-Item -LiteralPath (Join-Path $root $file) -Destination $stage -Force
 }
-foreach ($folder in @('payload\Scripts','payload\Data','third_party')) {
+foreach ($folder in @('payload\Scripts','third_party')) {
   $destination = Join-Path $stage $folder
   New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
   Copy-Item -LiteralPath (Join-Path $root $folder) -Destination $destination -Recurse -Force
