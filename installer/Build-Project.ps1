@@ -1,0 +1,135 @@
+$ErrorActionPreference = 'Stop'
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$buildDir = Join-Path $root 'dist\eiedit'
+$stage = Join-Path $buildDir 'direct-stage'
+$baseProject = Join-Path $PSScriptRoot 'template.pj2'
+$outputProject = Join-Path $buildDir 'REAPER-FL-Workflow-Direct-v1.1.4.pj2'
+$utf8 = New-Object Text.UTF8Encoding($false)
+$stageFull = [IO.Path]::GetFullPath($stage)
+$eieditFull = [IO.Path]::GetFullPath($buildDir).TrimEnd('\') + '\'
+if (-not $stageFull.StartsWith($eieditFull,[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe stage path.' }
+if (Test-Path -LiteralPath $stageFull) { Remove-Item -LiteralPath $stageFull -Recurse -Force }
+New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+function Put-File([string]$Source, [string]$Relative) {
+  $target = Join-Path $stage $Relative
+  New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+  Copy-Item -LiteralPath $Source -Destination $target -Force
+}
+function Put-Text([string]$Relative, [string]$Content) {
+  $target = Join-Path $stage $Relative
+  New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+  $normalized = $Content.TrimStart("`r", "`n") -replace "(?<!`r)`n", "`r`n"
+  [IO.File]::WriteAllText($target, $normalized, $utf8)
+}
+
+foreach ($base in @('payload\Scripts','payload\UserPlugins','third_party')) {
+  foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $root $base) -Recurse -File)) {
+    if ($base -eq 'payload\UserPlugins' -and $file.Name -notin @('reaper_DarkMode_x64.dll','reaper_darkmode.ini','reaper_js_ReaScriptAPI64.dll')) { continue }
+    $relative = $file.FullName.Substring($root.Length).TrimStart('\')
+    if ($base -eq 'third_party') { $relative = Join-Path 'Docs' $relative }
+    else { $relative = $relative.Substring('payload\'.Length) }
+    $relative = $relative.Replace([string][char]0x2215, '-')
+    Put-File $file.FullName $relative
+  }
+}
+Put-File (Join-Path $root 'LICENSE') 'Docs\LICENSE'
+Put-File (Join-Path $root 'THIRD_PARTY_NOTICES.md') 'Docs\THIRD_PARTY_NOTICES.md'
+
+Put-Text 'reaper-kb.ini' @'
+KEY 255 248 989 0
+KEY 255 249 990 0
+KEY 255 248 40432 32060
+KEY 255 249 40431 32060
+'@
+Put-Text 'reaper-menu.ini' @'
+[Empty TCP area toolbar]
+default=8e09af4c19a5dab2
+item_0=40701 Insert virtual instrument on new track...
+'@
+Put-Text 'reaper-extstate.ini' @'
+[FTC.GridBox]
+theme_settings=t:{ColorThemes/Default_7.0:t:{box_x:n:1208,box_h:n:32,attach_mode:n:2,box_w:n:50,box_y:n:2,attach_x:n:-712,draw_scale:n:1.005,measure_scale:n:1.005}}
+is_edit_mode=b:0
+'@
+Put-Text 'reaper-mouse.ini' @'
+[hasimported]
+MM_CTX_MIDI_PIANOROLL_CLK=1
+MM_CTX_MIDI_PIANOROLL=1
+MM_CTX_MIDI_NOTE_CLK=1
+MM_CTX_MIDI_NOTE=1
+MM_CTX_MIDI_NOTEEDGE=1
+MM_CTX_MIDI_RMOUSE=1
+
+[MM_CTX_MIDI_PIANOROLL_CLK]
+mm_0=4 m
+mm_2=0 m
+mm_3=0 m
+
+[MM_CTX_MIDI_PIANOROLL]
+mm_0=1 m
+mm_2=7 m
+
+[MM_CTX_MIDI_NOTE_CLK]
+mm_0=1 m
+
+[MM_CTX_MIDI_NOTE]
+mm_0=1 m
+mm_1=7 m
+
+[MM_CTX_MIDI_NOTEEDGE]
+mm_0=1 m
+
+[MM_CTX_MIDI_RMOUSE]
+mm_0=10 m
+mm_2=1 m
+'@
+Put-Text 'Scripts\__startup.lua' @'
+do
+  local resource = reaper.GetResourcePath()
+  local piano_dir = resource .. '/Scripts/FLPianoRoll/'
+  if reaper.GetExtState('FLPianoRoll_v1', 'enabled') ~= '1' then
+    dofile(piano_dir .. 'install.lua')
+  else
+    dofile(piano_dir .. 'core.lua').enableLengthMemoryWhenReady()
+  end
+  local gridbox = resource .. '/Scripts/FTC/Adaptive grid/Gridbox.lua'
+  local id = reaper.AddRemoveReaScript(true, 0, gridbox, true)
+  if id ~= 0 and reaper.APIExists('JS_Composite_Delay') then
+    reaper.Main_OnCommand(id, 0)
+  end
+end
+'@
+
+$encoding = [Text.Encoding]::GetEncoding(932)
+$project = [IO.File]::ReadAllText($baseProject, $encoding)
+$project = $project.Replace('CreateFolder=',"CreateFolder=$buildDir")
+$files = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName)
+$items = New-Object System.Collections.Generic.List[string]
+for ($i = 0; $i -lt $files.Count; $i++) {
+  $file = $files[$i]
+  $relative = $file.FullName.Substring($stage.Length).TrimStart('\')
+  $subdir = Split-Path -Path $relative -Parent
+  if ($subdir -eq '.') { $subdir = '' }
+  $items.Add("$i=1|0|%InstallDir%|$subdir|$($file.FullName)|||0|0|65535||0,0,HKEY_CURRENT_USER,,,,0,,,0,,,,,,,,,,,|||||||||")
+}
+$section = "[Files]`r`n" + ($items -join "`r`n") + "`r`n`r`n"
+$project = [regex]::Replace($project, '(?ms)^\[Files\]\r?\n.*?(?=^\[Software\])', [Text.RegularExpressions.MatchEvaluator]{ param($m) $section })
+$layout = [ordered]@{
+  mixwnd_vis='1'; mixwnd_dock='0'
+  transport_vis='1'; transport_dock='1'; transport_dock_pos='771'
+  dockermode0='0'; dockheight='41'
+}
+$iniTemplate = '0=0|%InstallDir%||test.ini|reaper|transport_dock|1|4095|0,0,0,0,0,0,0,0,0,,,,,,,,,,,,|0,0,HKEY_CURRENT_USER,,,,0,,,0,,,,,,,,,,,|||||||||||'
+$iniItems = New-Object System.Collections.Generic.List[string]
+$index = 0
+foreach ($key in $layout.Keys) {
+  $iniItems.Add($iniTemplate.Replace('0=0|',"$index=0|").Replace('test.ini','REAPER.ini').Replace('|transport_dock|1|',"|$key|$($layout[$key])|"))
+  $index++
+}
+$iniSection = "[IniFileItems]`r`n" + ($iniItems -join "`r`n") + "`r`n`r`n"
+$project = [regex]::Replace($project, '(?ms)^\[IniFileItems\]\r?\n.*?(?=^\[|\z)', [Text.RegularExpressions.MatchEvaluator]{ param($m) $iniSection })
+[IO.File]::WriteAllText($outputProject, $project, $encoding)
+"Project: $outputProject"
+"Files: $($files.Count)"

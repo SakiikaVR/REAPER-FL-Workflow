@@ -11,7 +11,7 @@
 
 REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモードを一度に設定します。フォントと起動ロゴはREAPER標準のままにします。
 
-現在の仕様は **v1.1.4** です。
+配布形式は **Windows 用 EXE のみ** です。現在の仕様は **v1.1.4** です。
 
 ## 特長
 
@@ -33,13 +33,13 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 
 1. 作業中のプロジェクトを保存し、REAPERを終了します。
 2. 既存の REAPER 設定を残したい場合は、`%APPDATA%\REAPER` を別の場所にコピーしておきます。EXE 版は `reaper-kb.ini`、`reaper-menu.ini`、`reaper-mouse.ini`、`reaper-extstate.ini`、`Scripts\__startup.lua` を上書きします。`REAPER.ini` は eiedit の INI 設定機能でドッキングの 7 項目だけを更新し、音声デバイス・言語設定を残します。
-3. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-Direct-v1.1.4.EXE` をダウンロードし、ダブルクリックします。
+3. [`REAPER-FL-Workflow-Direct-v1.1.4.EXE`](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/download/v1.1.4/REAPER-FL-Workflow-Direct-v1.1.4.EXE) をダウンロードし、ダブルクリックします。
 4. 画面に従ってインストールします。インストーラーはファイルを REAPER の設定フォルダーへ直接コピーして終了します。
 5. REAPERを起動して動作を確認します。初回起動時に ReaScript が REAPER のアクションへ登録されます。
 
 旧版で起動ロゴを設定した場合は、先に旧版のアンインストーラーで元の `REAPER.ini` へ戻してください。同名の `[reaper]` セクションが複数あると、eiedit の INI 設定が意図した項目を更新できない場合があります。
 
-ZIP版を使う場合は、`REAPER-FL-Workflow-v1.1.4.zip` を「すべて展開」し、`Install.cmd` をダブルクリックします。Smart App ControlはEXE内部のスクリプトやDLLも検査するため、警告が出ないことは保証できません。確実な対策には、配布する実行コードへの信頼された証明書による署名が必要です。
+Smart App Control は EXE や同梱 DLL を検査するため、すべての PC で警告が出ないことは保証できません。EXE と同梱 DLL は未署名です。
 
 REAPERの設定は `%APPDATA%\REAPER` に保存します。EXE版は別の展開フォルダーを作りません。
 
@@ -75,7 +75,7 @@ REAPERの設定は `%APPDATA%\REAPER` に保存します。EXE版は別の展開
 
 ## 元に戻す
 
-REAPERを終了し、インストール前に保存した `%APPDATA%\REAPER` のコピーから設定を戻してください。ZIP版の `Install.cmd` で導入した場合は、そのとき作成された `%APPDATA%\REAPER\ReaperFLWorkflow-Uninstall.cmd` を使えます。
+REAPERを終了し、インストール前に保存した `%APPDATA%\REAPER` のコピーから設定を戻してください。旧版で導入した場合は、そのとき作成された `%APPDATA%\REAPER\ReaperFLWorkflow-Uninstall.cmd` も使えます。
 
 ## REAPERを日本語化する
 
@@ -101,27 +101,10 @@ REAPERを終了し、インストール前に保存した `%APPDATA%\REAPER` の
 | `Scripts/__startup.lua` | Gridboxの自動起動 |
 | `UserPlugins` | DarkMode、js_ReaScriptAPI |
 
-## 開発と確認
-
-インストーラーは別のリソースフォルダーを指定できるため、実環境を変更せずに検証できます。
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 `
-  -ResourcePath .\.test-resource
-```
-
-配布ZIPを作成する場合は次を実行します。
-
-```powershell
-.\Build-Release.ps1
-```
-
 ## ファイル構成
 
 ```text
-├─ Build-Release.ps1               # 配布ZIPの作成
-├─ Install.cmd / Install.ps1       # 展開版インストーラー
-├─ Uninstall.cmd / Uninstall.ps1   # バックアップから復元
+├─ installer/                    # EXE 用 eiedit プロジェクト生成
 ├─ payload/
 │  ├─ Scripts/                     # FLピアノロールとGridbox
 │  └─ UserPlugins/                 # x64拡張DLL
