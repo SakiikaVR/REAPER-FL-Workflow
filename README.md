@@ -9,9 +9,9 @@
   </a>
 </p>
 
-REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモードを一度に設定します。REAPER標準のフォント、テーマ、起動ロゴは変更しません。
+REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモードを一度に設定します。フォントと起動ロゴはREAPER標準のままにします。
 
-現在の仕様は **v1.1.3** です。
+現在の仕様は **v1.1.4** です。
 
 ## 特長
 
@@ -22,21 +22,24 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 - 通常画面とMIDIエディターのホイールを縦スクロールへ統一
 - `Ctrl`＋ホイールで横方向をズーム
 - 空きトラック欄の「＋」からソフトシンセトラックを直接追加
-- Gridboxを右上へ配置し、REAPER起動時に自動実行
+- Gridboxを BPM 表示と重ならない位置に配置し、REAPER起動時に自動実行
+- ミキサーのドッキング状態と再生コントローラーの位置を設定
 - ReaperDarkModeでWindows標準ダイアログを暗色化
-- REAPER標準のフォントとテーマを変更しない
+- フォント・テーマの追加ファイルとカスタム起動ロゴを配布しない
 
 ## インストール
 
 動作対象は **Windows 10 / 11、REAPER 7.80 x64** です。
 
 1. 作業中のプロジェクトを保存し、REAPERを終了します。
-2. 既存の REAPER 設定を残したい場合は、`%APPDATA%\REAPER` を別の場所にコピーしておきます。EXE 版は `reaper-kb.ini`、`reaper-menu.ini`、`reaper-mouse.ini`、`reaper-extstate.ini`、`Scripts\__startup.lua` を上書きします。
-3. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-Direct-v1.1.3.EXE` をダウンロードし、ダブルクリックします。
+2. 既存の REAPER 設定を残したい場合は、`%APPDATA%\REAPER` を別の場所にコピーしておきます。EXE 版は `reaper-kb.ini`、`reaper-menu.ini`、`reaper-mouse.ini`、`reaper-extstate.ini`、`Scripts\__startup.lua` を上書きします。`REAPER.ini` は eiedit の INI 設定機能でドッキングの 7 項目だけを更新し、音声デバイス・言語設定を残します。
+3. [最新リリース](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/latest)から `REAPER-FL-Workflow-Direct-v1.1.4.EXE` をダウンロードし、ダブルクリックします。
 4. 画面に従ってインストールします。インストーラーはファイルを REAPER の設定フォルダーへ直接コピーして終了します。
 5. REAPERを起動して動作を確認します。初回起動時に ReaScript が REAPER のアクションへ登録されます。
 
-ZIP版を使う場合は、`REAPER-FL-Workflow-v1.1.3.zip` を「すべて展開」し、`Install.cmd` をダブルクリックします。Smart App ControlはEXE内部のスクリプトやDLLも検査するため、警告が出ないことは保証できません。確実な対策には、配布する実行コードへの信頼された証明書による署名が必要です。
+旧版で起動ロゴを設定した場合は、先に旧版のアンインストーラーで元の `REAPER.ini` へ戻してください。同名の `[reaper]` セクションが複数あると、eiedit の INI 設定が意図した項目を更新できない場合があります。
+
+ZIP版を使う場合は、`REAPER-FL-Workflow-v1.1.4.zip` を「すべて展開」し、`Install.cmd` をダブルクリックします。Smart App ControlはEXE内部のスクリプトやDLLも検査するため、警告が出ないことは保証できません。確実な対策には、配布する実行コードへの信頼された証明書による署名が必要です。
 
 REAPERの設定は `%APPDATA%\REAPER` に保存します。EXE版は別の展開フォルダーを作りません。
 
@@ -92,6 +95,7 @@ REAPERを終了し、インストール前に保存した `%APPDATA%\REAPER` の
 | `reaper-mouse.ini` / ExtState | FL風ピアノロール操作 |
 | `reaper-kb.ini` | 通常画面・MIDIエディターのホイール操作 |
 | `reaper-menu.ini` | Empty TCP area toolbarの「＋」 |
+| `REAPER.ini` | ミキサーと再生コントローラーの表示・ドッキング設定の 7 項目 |
 | `Scripts/FLPianoRoll` | 自作ReaScript |
 | `Scripts/FTC/Adaptive grid` | Gridbox |
 | `Scripts/__startup.lua` | Gridboxの自動起動 |
@@ -103,7 +107,7 @@ REAPERを終了し、インストール前に保存した `%APPDATA%\REAPER` の
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1 `
-  -ResourcePath .\.test-resource -SkipLaunch
+  -ResourcePath .\.test-resource
 ```
 
 配布ZIPを作成する場合は次を実行します。

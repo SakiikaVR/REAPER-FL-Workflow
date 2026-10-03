@@ -1,6 +1,5 @@
 ﻿param(
-  [string]$ResourcePath = (Join-Path $env:APPDATA 'REAPER'),
-  [switch]$SkipLaunch
+  [string]$ResourcePath = (Join-Path $env:APPDATA 'REAPER')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,18 +51,12 @@ $statePath = Join-Path $ResourcePath 'ReaperFLWorkflow-install-state.json'
 $previousState = $null
 if (Test-Path -LiteralPath $statePath) {
   $previousState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-  if ($previousState.version -ne '1.1.2') {
+  if ($previousState.version -notin @('1.1.2','1.1.3')) {
     throw 'このバージョンからの上書き更新には対応していません。先にReaperFLWorkflow-Uninstall.cmdまたは旧版のUninstall.cmdを実行してください。'
   }
 }
-if (-not $SkipLaunch) {
-  $programFiles64 = if ($env:ProgramW6432) { $env:ProgramW6432 } else { ${env:ProgramFiles} }
-  $reaperExe = Join-Path $programFiles64 'REAPER (x64)\reaper.exe'
-  if (-not (Test-Path -LiteralPath $reaperExe)) { throw 'reaper.exe was not found.' }
-}
-
 $managed = @(
-  'reaper-kb.ini','reaper-menu.ini','reaper-mouse.ini','reaper-extstate.ini',
+  'reaper-kb.ini','reaper-menu.ini','reaper-mouse.ini','reaper-extstate.ini','REAPER.ini',
   'Scripts\__startup.lua','Scripts\FLPianoRoll','Scripts\FTC\Adaptive grid',
   'UserPlugins\reaper_DarkMode_x64.dll','UserPlugins\reaper_darkmode.ini',
   'UserPlugins\reaper_js_ReaScriptAPI64.dll',
@@ -72,17 +65,27 @@ $managed = @(
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 if ($previousState) {
   $recorded = @($previousState.files | ForEach-Object { $_.path })
+  $stateFiles = @($previousState.files)
   foreach ($relative in $managed) {
-    if ($recorded -notcontains $relative) { throw "上書き更新に必要なバックアップ情報がありません: $relative" }
+    if ($recorded -notcontains $relative) {
+      $source = Join-Path $ResourcePath $relative
+      $exists = Test-Path -LiteralPath $source
+      $stateFiles += [ordered]@{ path=$relative; existed=$exists }
+      if ($exists) {
+        $destination = Join-Path $previousState.backup $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+        Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+      }
+    }
   }
   $backupRoot = $previousState.backup
   $state = [ordered]@{
-    version='1.1.3'; installed=$previousState.installed; updated=(Get-Date).ToString('o')
-    backup=$backupRoot; files=@($previousState.files)
+    version='1.1.4'; installed=$previousState.installed; updated=(Get-Date).ToString('o')
+    backup=$backupRoot; files=$stateFiles
   }
 } else {
   $backupRoot = Join-Path $ResourcePath ('ReaperFLWorkflow-Backups\' + $stamp)
-  $state = [ordered]@{ version='1.1.3'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
+  $state = [ordered]@{ version='1.1.4'; installed=(Get-Date).ToString('o'); backup=$backupRoot; files=@() }
   foreach ($relative in $managed) {
     $source = Join-Path $ResourcePath $relative
     $exists = Test-Path -LiteralPath $source
@@ -120,8 +123,16 @@ Set-IniSection (Join-Path $ResourcePath 'reaper-menu.ini') 'Empty TCP area toolb
 default=8e09af4c19a5dab2
 item_0=40701 Insert virtual instrument on new track...
 '@
-Set-IniValue (Join-Path $ResourcePath 'reaper-extstate.ini') 'FTC.GridBox' 'theme_settings' 't:{ColorThemes/Default_7.0:t:{box_x:n:600,box_y:n:4,box_w:n:80,box_h:n:32,attach_x:n:-270,attach_mode:n:2}}'
+Set-IniValue (Join-Path $ResourcePath 'reaper-extstate.ini') 'FTC.GridBox' 'theme_settings' 't:{ColorThemes/Default_7.0:t:{box_x:n:1208,box_h:n:32,attach_mode:n:2,box_w:n:50,box_y:n:2,attach_x:n:-712,draw_scale:n:1.005,measure_scale:n:1.005}}'
 Set-IniValue (Join-Path $ResourcePath 'reaper-extstate.ini') 'FTC.GridBox' 'is_edit_mode' 'b:0'
+$layout = [ordered]@{
+  mixwnd_vis='1'; mixwnd_dock='0'
+  transport_vis='1'; transport_dock='1'; transport_dock_pos='771'
+  dockermode0='0'; dockheight='41'
+}
+foreach ($key in $layout.Keys) {
+  Set-IniValue (Join-Path $ResourcePath 'REAPER.ini') 'reaper' $key $layout[$key]
+}
 
 $startupPath = Join-Path $ResourcePath 'Scripts\__startup.lua'
 $startup = if (Test-Path $startupPath) { [IO.File]::ReadAllText($startupPath) } else { '' }
