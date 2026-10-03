@@ -11,7 +11,7 @@
 
 REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用するWindows用セットアップです。ピアノロール、ホイール操作、トラック追加、Gridbox、ダークモードを一度に設定します。フォントと起動ロゴはREAPER標準のままにします。
 
-配布形式は **インストーラー一式を収めた ZIP** です。現在の配布版は **v1.1.5** です。
+配布形式は **インストーラー一式を収めた ZIP** です。現在の配布版は **v1.1.6** です。
 
 ## 特長
 
@@ -19,9 +19,11 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 - 直前に置いた、または選択したノートの長さを次の入力へ記憶
 - 右クリック・右ドラッグでノートとCCをすぐ削除
 - `Ctrl`＋ドラッグで矩形選択、`Shift`＋ドラッグでノート複製
+- ピアノロールの `Ctrl+B` で選択ノートを右へ複製
 - 通常画面とMIDIエディターのホイールを縦スクロールへ統一
 - `Ctrl`＋ホイールで横方向をズーム
 - 空きトラック欄の「＋」からソフトシンセトラックを直接追加
+- メインツールバーから新規 MIDI アイテムを追加
 - Gridboxを BPM 表示と重ならない位置に配置し、REAPER起動時に自動実行
 - ミキサーのドッキング状態と再生コントローラーの位置を設定
 - ReaperDarkModeでWindows標準ダイアログを暗色化
@@ -33,7 +35,7 @@ REAPER 7の操作感と見た目を、FL Studio寄りにまとめて適用する
 
 1. 作業中のプロジェクトを保存し、REAPERを終了します。
 2. 既存の REAPER 設定を残したい場合は、`%APPDATA%\REAPER` を別の場所にコピーしておきます。インストーラーは `reaper-kb.ini`、`reaper-menu.ini`、`reaper-mouse.ini`、`reaper-extstate.ini`、`Scripts\__startup.lua` を上書きします。`REAPER.ini` は eiedit の INI 設定機能でドッキングの 7 項目だけを更新し、音声デバイス・言語設定を残します。
-3. [`REAPER-FL-Workflow-Direct-v1.1.5.zip`](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/download/v1.1.5/REAPER-FL-Workflow-Direct-v1.1.5.zip) をダウンロードして展開し、展開したフォルダーの `INSTALL.EXE` をダブルクリックします。`INSTALL.DAT` と `Files` フォルダーも同じ場所に置いたまま実行してください。
+3. [`REAPER-FL-Workflow-Direct-v1.1.6.zip`](https://github.com/SakiikaVR/REAPER-FL-Workflow/releases/download/v1.1.6/REAPER-FL-Workflow-Direct-v1.1.6.zip) をダウンロードして展開し、展開したフォルダーの `INSTALL.EXE` をダブルクリックします。`INSTALL.DAT` と `Files` フォルダーも同じ場所に置いたまま実行してください。
 4. 画面に従ってインストールします。インストーラーはファイルを REAPER の設定フォルダーへ直接コピーして終了します。
 5. REAPERを起動して動作を確認します。初回起動時に ReaScript が REAPER のアクションへ登録されます。
 
@@ -54,6 +56,7 @@ REAPERの設定は `%APPDATA%\REAPER` に保存します。ZIP の展開先に�
 | `Ctrl`＋左ドラッグ | 矩形選択 |
 | ノートを左ドラッグ | 移動 |
 | `Shift`＋ノートを左ドラッグ | 複製 |
+| `Ctrl+B` | 選択ノートを右へ複製。未選択なら全ノートを複製 |
 | ノート端を左ドラッグ | 長さを変更 |
 | 右クリック・右ドラッグ | ノート／CCを即時削除 |
 | `Ctrl`＋右ドラッグ | ノート／CCを矩形選択 |
@@ -61,6 +64,8 @@ REAPERの設定は `%APPDATA%\REAPER` に保存します。ZIP の展開先に�
 ノートを伸ばした後、または既存ノートを一度選択した後に空白をクリックすると、その長さで次のノートを置けます。
 
 この設定はMIDIエディターの **オプション → Drawing or selecting a note sets the new note length** でも確認できます。MIDIエディターが閉じた状態でインストールした場合も、次に開いたときに有効化されます。
+
+`Ctrl+B` は複製後のノートを選択するため、続けて押すと同じ間隔で複製できます。時間選択がある場合は、その幅を反復間隔に使います。
 
 ### ホイール
 

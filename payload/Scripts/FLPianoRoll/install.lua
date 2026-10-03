@@ -14,7 +14,7 @@ M.enable()
 M.restore()
 for i,b in ipairs(M.bindings) do assert(before[i]==reaper.GetMouseModifier(b[1],b[2]),'Round-trip failed') end
 out:write('PASS: enable/restore round-trip for all bindings\n')
-local scripts={'FL Piano Roll - Enable.lua','FL Piano Roll - Restore original mouse settings.lua','FL Piano Roll - Toggle paint mode.lua'}
+local scripts={'FL Piano Roll - Enable.lua','FL Piano Roll - Restore original mouse settings.lua','FL Piano Roll - Toggle paint mode.lua','FL Piano Roll - Duplicate to right.lua'}
 for _,name in ipairs(scripts) do
  for _,section in ipairs({0,32060}) do
   local id=reaper.AddRemoveReaScript(true,section,dir..name,true)

@@ -1,6 +1,6 @@
 param(
   [string]$SourceDirectory = (Join-Path $PSScriptRoot '..\dist\eiedit\uncompressed'),
-  [string]$OutputFile = (Join-Path $PSScriptRoot '..\dist\eiedit\REAPER-FL-Workflow-Direct-v1.1.5.zip')
+  [string]$OutputFile = (Join-Path $PSScriptRoot '..\dist\eiedit\REAPER-FL-Workflow-Direct-v1.1.6.zip')
 )
 $ErrorActionPreference = 'Stop'
 $source = [IO.Path]::GetFullPath($SourceDirectory)
@@ -23,7 +23,7 @@ $rootDirectories = @(Get-ChildItem -LiteralPath $source -Directory | ForEach-Obj
 if (($rootDirectories -join '|') -ne 'Files') { throw 'Unexpected directories in installer root.' }
 $payload = @(Get-ChildItem -LiteralPath (Join-Path $source 'Files') -Recurse -File)
 $staged = @(Get-ChildItem -LiteralPath $stage -Recurse -File)
-if ($payload.Count -ne $staged.Count -or $payload.Count -ne 34) {
+if ($payload.Count -ne $staged.Count -or $payload.Count -ne 35) {
   throw "Unexpected payload count: output=$($payload.Count), staged=$($staged.Count)."
 }
 foreach ($file in $staged) {
